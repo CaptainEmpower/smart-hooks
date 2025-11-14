@@ -1,10 +1,8 @@
 /// Claude-powered BDD Feature Selector
 /// Automatically selects which BDD features to run based on staged git changes
 use clap::Parser;
-use smart_hooks::analysis::bdd_feature_selector::BddFeatureSelection;
-#[cfg(not(test))]
 use smart_hooks::analysis::bdd_feature_selector::{
-    discover_bdd_features, get_staged_changes, select_bdd_features_hybrid,
+    discover_bdd_features, get_staged_changes, select_bdd_features_hybrid, BddFeatureSelection,
 };
 use std::path::PathBuf;
 
@@ -105,7 +103,6 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
 fn print_text_output(
     selection: &BddFeatureSelection,
     threshold: f32,
