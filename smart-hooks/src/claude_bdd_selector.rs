@@ -2,7 +2,7 @@
 /// Automatically selects which BDD features to run based on staged git changes
 use clap::Parser;
 use smart_hooks::analysis::bdd_feature_selector::BddFeatureSelection;
-#[cfg(all(not(test), feature = "claude-ai"))]
+#[cfg(not(test))]
 use smart_hooks::analysis::bdd_feature_selector::{
     discover_bdd_features, get_staged_changes, select_bdd_features_hybrid,
 };
