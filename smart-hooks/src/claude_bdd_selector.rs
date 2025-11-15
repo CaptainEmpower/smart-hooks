@@ -1,9 +1,11 @@
 /// Claude-powered BDD Feature Selector
 /// Automatically selects which BDD features to run based on staged git changes
 use clap::Parser;
-use smart_hooks::analysis::bdd::BddFeatureSelection;
+use smart_hooks::analysis::bdd_feature_selector::BddFeatureSelection;
 #[cfg(all(not(test), feature = "claude-ai"))]
-use smart_hooks::analysis::bdd::{BddFeatureSelector, BddFileAnalyzer};
+use smart_hooks::analysis::bdd_feature_selector::{
+    discover_bdd_features, get_staged_changes, select_bdd_features_hybrid,
+};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -42,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Get staged changes
     println!("🔍 Analyzing staged changes...");
-    let staged_files = BddFileAnalyzer::analyze_staged_files()?;
+    let staged_files = get_staged_changes()?;
 
     if staged_files.is_empty() {
         println!("📝 No staged changes found. Stage some files first with 'git add'");
@@ -65,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Discover available BDD features
     println!("\n🎭 Discovering BDD features...");
-    let available_features = BddFeatureSelector::discover_features(&project_root)?;
+    let available_features = discover_bdd_features(&project_root)?;
 
     if available_features.is_empty() {
         println!(
@@ -87,7 +89,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Use Claude AI to select features
     println!("\n🤖 Asking Claude AI to select relevant BDD features...");
-    let selection = BddFeatureSelector::select_features_static(&staged_files, &available_features)?;
+    let selection =
+        select_bdd_features_hybrid(&staged_files, &available_features, &project_context).await?;
 
     // Output results
     match args.output.as_str() {

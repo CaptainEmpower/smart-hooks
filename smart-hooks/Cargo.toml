@@ -31,11 +31,6 @@ path = "src/claude_bdd_selector.rs"
 name = "conditional-compilation-checker"
 path = "src/conditional_compilation_checker.rs"
 
-# Multi-language project analyzer
-[[bin]]
-name = "multi-lang-analyzer"
-path = "src/bin/multi-lang-analyzer.rs"
-
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
 anyhow = "1.0"

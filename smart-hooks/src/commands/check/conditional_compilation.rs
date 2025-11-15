@@ -1,9 +1,7 @@
 /// Conditional Compilation Checker
 /// Detects mismatched conditional compilation patterns that can cause unused import errors
-/// Now uses generic project discovery for cross-project compatibility
 use anyhow::{Context, Result};
-use smart_hooks::project::RustProjectConfig;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug)]
@@ -23,22 +21,9 @@ pub async fn run(
     let project_root = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
     std::env::set_current_dir(&project_root)?;
 
-    // Discover project structure
-    let project_config = RustProjectConfig::discover(&project_root).context(
-        "Failed to discover project structure. Make sure you're in a Rust project directory.",
-    )?;
-
-    if verbose {
-        println!(
-            "📊 Discovered project: {} ({})",
-            project_config.metadata.name, project_config.metadata.version
-        );
-        println!("📦 Analyzing {} crate(s)", project_config.crates.len());
-    }
-
     // Get files to check
     let files_to_check = if all_files {
-        project_config.get_all_source_files()?
+        get_all_rust_files(&project_root)?
     } else {
         get_staged_rust_files()?
     };
@@ -105,34 +90,32 @@ pub async fn run(
         return Err(anyhow::anyhow!("Cargo check failed with all features"));
     }
 
-    // Check individual crates using project configuration
-    if project_config.crates.len() > 1 {
+    // Check individual crates if we're in a workspace
+    if has_workspace_members()? {
         println!("  🏗️  Checking individual workspace members...");
-        for crate_info in &project_config.crates {
+        let members = get_workspace_members()?;
+        for member in members {
             if verbose {
-                println!("    Checking crate: {}", crate_info.name);
+                println!("    Checking crate: {}", member);
             }
 
             // Check member with no features
-            if let Err(e) = run_cargo_check(&["--no-default-features", "-p", &crate_info.name]) {
-                println!(
-                    "❌ Crate {} failed with no default features:",
-                    crate_info.name
-                );
+            if let Err(e) = run_cargo_check(&["--no-default-features", "-p", &member]) {
+                println!("❌ Crate {} failed with no default features:", member);
                 println!("{}", e);
                 return Err(anyhow::anyhow!(
                     "Cargo check failed for crate {} with no default features",
-                    crate_info.name
+                    member
                 ));
             }
 
             // Check member with all features
-            if let Err(e) = run_cargo_check(&["--all-features", "-p", &crate_info.name]) {
-                println!("❌ Crate {} failed with all features:", crate_info.name);
+            if let Err(e) = run_cargo_check(&["--all-features", "-p", &member]) {
+                println!("❌ Crate {} failed with all features:", member);
                 println!("{}", e);
                 return Err(anyhow::anyhow!(
                     "Cargo check failed for crate {} with all features",
-                    crate_info.name
+                    member
                 ));
             }
         }
@@ -162,7 +145,33 @@ fn get_staged_rust_files() -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-// get_all_rust_files function removed - now using project_config.get_all_source_files()
+fn get_all_rust_files(project_root: &Path) -> Result<Vec<PathBuf>> {
+    let output = Command::new("find")
+        .args([
+            project_root.to_str().unwrap(),
+            "-name",
+            "*.rs",
+            "-not",
+            "-path",
+            "*/target/*",
+            "-not",
+            "-path",
+            "*/.git/*",
+        ])
+        .output()
+        .context("Failed to find Rust files")?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!("find command failed"));
+    }
+
+    let files: Vec<PathBuf> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(PathBuf::from)
+        .collect();
+
+    Ok(files)
+}
 
 fn detect_conditional_patterns(files: &[PathBuf]) -> Result<Vec<ConditionalPattern>> {
     let mut patterns = Vec::new();
@@ -245,7 +254,41 @@ fn run_cargo_check(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-// Workspace functions removed - now using RustProjectConfig for workspace detection
+fn has_workspace_members() -> Result<bool> {
+    Ok(Path::new("Cargo.toml").exists()
+        && std::fs::read_to_string("Cargo.toml")?.contains("[workspace]"))
+}
+
+fn get_workspace_members() -> Result<Vec<String>> {
+    let cargo_toml = std::fs::read_to_string("Cargo.toml")?;
+    let parsed: toml::Value = cargo_toml.parse()?;
+
+    let mut members = Vec::new();
+    if let Some(workspace) = parsed.get("workspace") {
+        if let Some(member_array) = workspace.get("members").and_then(|v| v.as_array()) {
+            for member in member_array {
+                if let Some(member_str) = member.as_str() {
+                    // Extract package name from member path
+                    let member_path = Path::new(member_str);
+                    let cargo_toml_path = member_path.join("Cargo.toml");
+
+                    if cargo_toml_path.exists() {
+                        let member_cargo = std::fs::read_to_string(cargo_toml_path)?;
+                        let member_parsed: toml::Value = member_cargo.parse()?;
+
+                        if let Some(package) = member_parsed.get("package") {
+                            if let Some(name) = package.get("name").and_then(|n| n.as_str()) {
+                                members.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(members)
+}
 
 #[cfg(test)]
 mod tests {
@@ -302,31 +345,13 @@ fn main() {
     #[tokio::test]
     async fn test_detect_only_mode() {
         let temp_dir = TempDir::new().unwrap();
-
-        // Create a minimal Cargo.toml for project discovery
-        fs::write(
-            temp_dir.path().join("Cargo.toml"),
-            r#"
-[package]
-name = "test-project"
-version = "0.1.0"
-edition = "2021"
-"#,
-        )
-        .unwrap();
-
-        // Create src directory and file with conditional compilation
-        let src_dir = temp_dir.path().join("src");
-        fs::create_dir(&src_dir).unwrap();
-        let test_file = src_dir.join("lib.rs");
+        let test_file = temp_dir.path().join("test.rs");
 
         fs::write(
             &test_file,
             r#"
 #[cfg(feature = "example")]
 use example::Thing;
-
-pub fn main() {}
 "#,
         )
         .unwrap();
@@ -347,21 +372,8 @@ pub fn main() {}
     async fn test_no_rust_files() {
         let temp_dir = TempDir::new().unwrap();
 
-        // Create a minimal Cargo.toml for project discovery
-        fs::write(
-            temp_dir.path().join("Cargo.toml"),
-            r#"
-[package]
-name = "test-project"
-version = "0.1.0"
-edition = "2021"
-"#,
-        )
-        .unwrap();
-
-        // Create empty src directory with no Rust files
-        let src_dir = temp_dir.path().join("src");
-        fs::create_dir(&src_dir).unwrap();
+        // Create a non-rust file to ensure directory is not empty
+        fs::write(temp_dir.path().join("test.txt"), "hello").unwrap();
 
         // Test with no Rust files - use detect_only to avoid cargo commands
         let result = run(
@@ -372,9 +384,6 @@ edition = "2021"
         )
         .await;
 
-        if let Err(e) = &result {
-            println!("Error in test_no_rust_files: {}", e);
-        }
         assert!(result.is_ok());
     }
 
@@ -392,5 +401,43 @@ edition = "2021"
         assert!(result.is_err());
     }
 
-    // Workspace tests removed - now using RustProjectConfig for workspace detection
+    #[test]
+    fn test_has_workspace_members() {
+        let temp_dir = TempDir::new().unwrap();
+        let cargo_toml = temp_dir.path().join("Cargo.toml");
+
+        // Test without workspace
+        fs::write(
+            &cargo_toml,
+            r#"
+[package]
+name = "test"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let old_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp_dir.path()).unwrap();
+
+        assert!(!has_workspace_members().unwrap());
+
+        // Test with workspace
+        fs::write(
+            &cargo_toml,
+            r#"
+[workspace]
+members = ["crate1", "crate2"]
+
+[package]
+name = "test"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        assert!(has_workspace_members().unwrap());
+
+        std::env::set_current_dir(old_dir).unwrap();
+    }
 }
