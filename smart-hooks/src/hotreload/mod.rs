@@ -9,12 +9,12 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 pub mod cache;
-pub mod execution;
+pub mod engine;
 pub mod tracking;
 pub mod warming;
 
 pub use cache::{CacheEntry, CacheKey, CacheStorage, DiskLruCache};
-pub use execution::HotReloadEngine;
+pub use engine::HotReloadEngine;
 pub use tracking::{ChangeEvent, ChangeSet, FileChangeTracker};
 pub use warming::{BackgroundWarmingService, WarmingTask};
 
@@ -87,12 +87,6 @@ pub struct HookResults {
     pub results: Vec<HookResult>,
     pub overall_success: bool,
     pub total_execution_time: Duration,
-}
-
-impl Default for HookResults {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl HookResults {

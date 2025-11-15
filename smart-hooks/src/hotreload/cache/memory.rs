@@ -21,12 +21,6 @@ struct CacheStats {
     total_requests: u64,
 }
 
-impl Default for MemoryCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl MemoryCache {
     /// Create new in-memory cache
     pub fn new() -> Self {

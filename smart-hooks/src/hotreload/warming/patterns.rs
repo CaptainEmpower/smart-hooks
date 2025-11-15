@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use tokio::fs;
 use tokio::process::Command;
 
 /// Pattern learner that analyzes file change patterns for prediction
@@ -102,26 +103,15 @@ pub enum PredictionReason {
 #[derive(Debug, Clone)]
 pub struct PredictionOutcome {
     /// Files that were predicted
-    #[allow(dead_code)] // Used for learning feedback (future implementation)
     predicted_files: Vec<PathBuf>,
     /// Files that actually changed
-    #[allow(dead_code)] // Used for learning feedback (future implementation)
     actual_files: Vec<PathBuf>,
     /// Timestamp of prediction
-    #[allow(dead_code)] // Used for learning feedback (future implementation)
     prediction_time: SystemTime,
     /// Whether prediction was successful
-    #[allow(dead_code)] // Used for learning feedback (future implementation)
     successful: bool,
     /// Confidence score of original prediction
-    #[allow(dead_code)] // Used for learning feedback (future implementation)
     original_confidence: f64,
-}
-
-impl Default for PatternLearner {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl PatternLearner {
@@ -478,6 +468,7 @@ pub struct PatternStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn test_commit_categorization() {

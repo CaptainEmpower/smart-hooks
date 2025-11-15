@@ -144,7 +144,6 @@ pub async fn run(
     Ok(())
 }
 
-#[allow(dead_code)] // Used in future graph visualization features
 fn show_dependency_graph(
     dependencies: &[smart_hooks::dependency::types::Dependency],
     file_path: &Path,

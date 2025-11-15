@@ -203,8 +203,8 @@ impl CacheStorage for DiskLruCache {
                         entry.mark_accessed();
 
                         // Update cache entry on disk with new access time
-                        let serialized =
-                            bincode::serialize(&entry).map_err(HotReloadError::Serialization)?;
+                        let serialized = bincode::serialize(&entry)
+                            .map_err(|e| HotReloadError::Serialization(e))?;
 
                         if let Err(e) = fs::write(&file_path, &serialized).await {
                             tracing::warn!("Failed to update cache entry access time: {}", e);
@@ -236,7 +236,7 @@ impl CacheStorage for DiskLruCache {
     }
 
     async fn store(&self, key: CacheKey, entry: &CacheEntry) -> HotReloadResult<()> {
-        let serialized = bincode::serialize(entry).map_err(HotReloadError::Serialization)?;
+        let serialized = bincode::serialize(entry).map_err(|e| HotReloadError::Serialization(e))?;
 
         // Evict entries if needed before storing
         self.evict_if_needed(serialized.len()).await?;
@@ -244,7 +244,7 @@ impl CacheStorage for DiskLruCache {
         let file_path = self.cache_file_path(&key);
         fs::write(&file_path, &serialized)
             .await
-            .map_err(HotReloadError::Io)?;
+            .map_err(|e| HotReloadError::Io(e))?;
 
         // Update LRU tracking
         {

@@ -1,8 +1,9 @@
 //! File change tracking for intelligent cache invalidation
 
-use crate::hotreload::HotReloadResult;
+use crate::hotreload::{HotReloadError, HotReloadResult};
 use crate::DependencyGraph;
 use notify::Event;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -62,12 +63,6 @@ pub struct ChangeSet {
     pub affected_tests: Vec<PathBuf>,
     /// Confidence score for the change analysis
     pub confidence: f64,
-}
-
-impl Default for ChangeSet {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ChangeSet {

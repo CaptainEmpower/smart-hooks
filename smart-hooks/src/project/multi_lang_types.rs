@@ -28,7 +28,6 @@ pub enum Language {
     TypeScript,
     JavaScript,
     Python,
-    #[allow(clippy::upper_case_acronyms)]
     PHP,
     Go,
     Java,

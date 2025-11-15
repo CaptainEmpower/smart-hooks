@@ -1,6 +1,6 @@
 //! Background warming service for proactive cache population
 
-use crate::hotreload::HotReloadResult;
+use crate::hotreload::{HotReloadError, HotReloadResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -23,7 +23,6 @@ pub struct BackgroundWarmingService {
     /// Pattern learner for predicting file change patterns
     pattern_learner: PatternLearner,
     /// Task scheduler for managing warming execution
-    #[allow(dead_code)] // Will be used when background scheduling is fully implemented
     scheduler: TaskScheduler,
     /// Flag to control service running state
     is_running: Arc<AtomicBool>,

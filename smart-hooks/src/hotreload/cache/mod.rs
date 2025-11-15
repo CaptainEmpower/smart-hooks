@@ -1,6 +1,6 @@
 //! Cache storage implementations for hot reload system
 
-use super::HookResults;
+use super::{HookResults, HotReloadResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -133,12 +133,6 @@ pub struct CacheMetadata {
     pub tags: HashMap<String, String>,
 }
 
-impl Default for CacheMetadata {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CacheMetadata {
     pub fn new() -> Self {
         Self {
@@ -172,12 +166,6 @@ pub struct InvalidationScope {
     pub affected_files: Vec<(PathBuf, f64)>, // (file, confidence)
     /// Tests that need to be invalidated
     pub affected_tests: Vec<(PathBuf, f64)>, // (test_file, confidence)
-}
-
-impl Default for InvalidationScope {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl InvalidationScope {

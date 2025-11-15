@@ -1,11 +1,12 @@
 //! Task scheduler for managing warming execution priorities
 
 use super::{WarmingTask, WarmingTaskType};
-use crate::hotreload::HotReloadResult;
+use crate::hotreload::{HotReloadError, HotReloadResult};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::time::{Duration, SystemTime};
 use tokio::sync::Mutex;
+use tokio::time;
 
 /// Task scheduler that manages warming task execution with priorities
 pub struct TaskScheduler {
@@ -97,12 +98,6 @@ impl PartialEq for PrioritizedTask {
 }
 
 impl Eq for PrioritizedTask {}
-
-impl Default for TaskScheduler {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl TaskScheduler {
     /// Create new task scheduler

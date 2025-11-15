@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Get project context
-    let _project_context = args
+    let project_context = args
         .context
         .unwrap_or_else(|| format!("Rust project at {}", project_root.display()));
 

@@ -4,6 +4,7 @@ use super::ChangeEvent;
 use crate::hotreload::{HotReloadError, HotReloadResult};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -136,7 +137,7 @@ impl FileSystemWatcher {
                 }
 
                 // For patterns like **/target/**, check if path contains the directory
-                if path_str.contains(pattern_without_wildcard.trim_matches('/')) {
+                if path_str.contains(&pattern_without_wildcard.trim_matches('/')) {
                     return true;
                 }
             } else if path_str.ends_with(pattern) {
@@ -154,7 +155,7 @@ impl FileSystemWatcher {
         }
     }
 
-    /// Add custom ignore pattern
+    /// Add custom ignore pattern  
     pub fn add_ignore_pattern(&mut self, pattern: String) {
         if !self.ignore_patterns.contains(&pattern) {
             self.ignore_patterns.push(pattern);
@@ -226,7 +227,7 @@ impl DebouncedFileWatcher {
                     _ = debounce_timer.tick() => {
                         if !pending_events.is_empty() {
                             let events_to_send = std::mem::take(&mut pending_events);
-                            if debounced_sender.send(events_to_send).is_err() {
+                            if let Err(_) = debounced_sender.send(events_to_send) {
                                 break; // Receiver dropped
                             }
                         }
@@ -248,6 +249,8 @@ impl DebouncedFileWatcher {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use tokio::fs;
+    use tokio::time;
 
     #[tokio::test]
     async fn test_file_watcher_creation() {
