@@ -47,12 +47,11 @@ impl MultiLangDependencyAnalyzer {
             match language_config.language {
                 Language::Rust => {
                     // Create Rust analyzer if not already registered
-                    self.language_analyzers
-                        .entry(Language::Rust)
-                        .or_insert_with(|| {
-                            let rust_analyzer = RustMultiLangAnalyzer::new(language_config.clone());
-                            Box::new(rust_analyzer)
-                        });
+                    if !self.language_analyzers.contains_key(&Language::Rust) {
+                        let rust_analyzer = RustMultiLangAnalyzer::new(language_config.clone());
+                        self.language_analyzers
+                            .insert(Language::Rust, Box::new(rust_analyzer));
+                    }
                 }
                 Language::TypeScript => {
                     let ts_analyzer = TypeScriptDependencyAnalyzer::new(language_config.clone());
@@ -128,7 +127,7 @@ impl MultiLangDependencyAnalyzer {
             if let Some(language) = self.detect_file_language(file) {
                 files_by_language
                     .entry(language)
-                    .or_default()
+                    .or_insert_with(Vec::new)
                     .push(file.clone());
             }
         }
@@ -160,12 +159,13 @@ impl MultiLangDependencyAnalyzer {
         let mut files = Vec::new();
         let extensions = language.file_extensions();
 
-        Self::find_files_recursive(dir, &extensions, &mut files)?;
+        self.find_files_recursive(dir, &extensions, &mut files)?;
         Ok(files)
     }
 
     /// Recursively find files with specific extensions
     fn find_files_recursive(
+        &self,
         dir: &Path,
         extensions: &[&str],
         files: &mut Vec<PathBuf>,
@@ -179,7 +179,7 @@ impl MultiLangDependencyAnalyzer {
             let path = entry.path();
 
             if path.is_dir() {
-                Self::find_files_recursive(&path, extensions, files)?;
+                self.find_files_recursive(&path, extensions, files)?;
             } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                 if extensions.contains(&ext) {
                     files.push(path);
@@ -193,14 +193,12 @@ impl MultiLangDependencyAnalyzer {
 
 /// Rust dependency analyzer adapted for multi-language context
 pub struct RustMultiLangAnalyzer {
-    _language_config: crate::project::multi_lang_types::LanguageConfig,
+    language_config: crate::project::multi_lang_types::LanguageConfig,
 }
 
 impl RustMultiLangAnalyzer {
     pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
-        Self {
-            _language_config: language_config,
-        }
+        Self { language_config }
     }
 }
 
@@ -212,7 +210,7 @@ impl LanguageDependencyAnalyzer for RustMultiLangAnalyzer {
         let mut dependencies = Vec::new();
 
         // Look for use statements and mod declarations
-        for line in content.lines() {
+        for (line_num, line) in content.lines().enumerate() {
             let line = line.trim();
 
             if line.starts_with("use ") || line.starts_with("mod ") {
@@ -283,14 +281,12 @@ impl RustMultiLangAnalyzer {
 
 /// TypeScript dependency analyzer
 pub struct TypeScriptDependencyAnalyzer {
-    _language_config: crate::project::multi_lang_types::LanguageConfig,
+    language_config: crate::project::multi_lang_types::LanguageConfig,
 }
 
 impl TypeScriptDependencyAnalyzer {
     pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
-        Self {
-            _language_config: language_config,
-        }
+        Self { language_config }
     }
 }
 
@@ -300,7 +296,7 @@ impl LanguageDependencyAnalyzer for TypeScriptDependencyAnalyzer {
         let mut dependencies = Vec::new();
 
         // Look for import statements
-        for line in content.lines() {
+        for (line_num, line) in content.lines().enumerate() {
             let line = line.trim();
 
             if line.starts_with("import ")
@@ -380,14 +376,12 @@ impl TypeScriptDependencyAnalyzer {
 
 /// Python dependency analyzer
 pub struct PythonDependencyAnalyzer {
-    _language_config: crate::project::multi_lang_types::LanguageConfig,
+    language_config: crate::project::multi_lang_types::LanguageConfig,
 }
 
 impl PythonDependencyAnalyzer {
     pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
-        Self {
-            _language_config: language_config,
-        }
+        Self { language_config }
     }
 }
 
@@ -396,7 +390,7 @@ impl LanguageDependencyAnalyzer for PythonDependencyAnalyzer {
         let content = std::fs::read_to_string(file_path)?;
         let mut dependencies = Vec::new();
 
-        for line in content.lines() {
+        for (line_num, line) in content.lines().enumerate() {
             let line = line.trim();
 
             if line.starts_with("import ") || line.starts_with("from ") {
@@ -469,14 +463,12 @@ impl PythonDependencyAnalyzer {
 
 /// PHP dependency analyzer
 pub struct PhpDependencyAnalyzer {
-    _language_config: crate::project::multi_lang_types::LanguageConfig,
+    language_config: crate::project::multi_lang_types::LanguageConfig,
 }
 
 impl PhpDependencyAnalyzer {
     pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
-        Self {
-            _language_config: language_config,
-        }
+        Self { language_config }
     }
 }
 
@@ -485,7 +477,7 @@ impl LanguageDependencyAnalyzer for PhpDependencyAnalyzer {
         let content = std::fs::read_to_string(file_path)?;
         let mut dependencies = Vec::new();
 
-        for line in content.lines() {
+        for (line_num, line) in content.lines().enumerate() {
             let line = line.trim();
 
             if line.starts_with("use ")
