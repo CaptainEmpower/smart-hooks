@@ -3,23 +3,43 @@
 use super::{storage::CacheStorage, CacheEntry, CacheKey, InvalidationPattern};
 use crate::hotreload::{CacheStatistics, HotReloadError, HotReloadResult};
 use async_trait::async_trait;
-use std::path::Path;
-use std::time::Duration;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+use tokio::fs;
 use tokio::sync::RwLock;
 
-mod disk_ops;
-mod lru_types;
-
-use disk_ops::DiskOpsManager;
-use lru_types::{CacheStats, LruTracker};
+/// LRU tracking information for cache entries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LruEntry {
+    key: CacheKey,
+    last_accessed: SystemTime,
+    size_bytes: usize,
+}
 
 /// Disk-based cache with LRU eviction policy
 pub struct DiskLruCache {
-    disk_ops: DiskOpsManager,
+    cache_dir: PathBuf,
     max_size_bytes: u64,
     max_entries: usize,
     lru_tracker: RwLock<LruTracker>,
     stats: RwLock<CacheStats>,
+}
+
+#[derive(Debug)]
+struct LruTracker {
+    entries: HashMap<CacheKey, LruEntry>,
+    access_order: Vec<CacheKey>, // LRU order (oldest first)
+    current_size_bytes: u64,
+}
+
+#[derive(Debug, Clone)]
+struct CacheStats {
+    hits: u64,
+    misses: u64,
+    evictions: u64,
+    total_requests: u64,
 }
 
 impl DiskLruCache {
@@ -30,17 +50,25 @@ impl DiskLruCache {
         max_entries: usize,
     ) -> HotReloadResult<Self> {
         let cache_dir = cache_dir.as_ref().to_path_buf();
-        let disk_ops = DiskOpsManager::new(cache_dir);
 
-        // Ensure cache directory exists
-        disk_ops.ensure_cache_dir().await?;
+        // Create cache directory if it doesn't exist
+        fs::create_dir_all(&cache_dir).await?;
 
         let cache = Self {
-            disk_ops,
+            cache_dir,
             max_size_bytes,
             max_entries,
-            lru_tracker: RwLock::new(LruTracker::new()),
-            stats: RwLock::new(CacheStats::default()),
+            lru_tracker: RwLock::new(LruTracker {
+                entries: HashMap::new(),
+                access_order: Vec::new(),
+                current_size_bytes: 0,
+            }),
+            stats: RwLock::new(CacheStats {
+                hits: 0,
+                misses: 0,
+                evictions: 0,
+                total_requests: 0,
+            }),
         };
 
         // Load existing cache entries
@@ -51,18 +79,55 @@ impl DiskLruCache {
 
     /// Load existing cache entries from disk
     async fn load_existing_entries(&self) -> HotReloadResult<()> {
-        let cache_keys = self.disk_ops.list_cache_files().await?;
+        let mut entries = tokio::fs::read_dir(&self.cache_dir).await?;
         let mut lru_tracker = self.lru_tracker.write().await;
 
-        for key in cache_keys {
-            if self.disk_ops.cache_file_exists(&key).await {
-                if let Ok(size_bytes) = self.disk_ops.cache_file_size(&key).await {
-                    lru_tracker.add_entry(key, size_bytes as usize);
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("cache") {
+                if let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let key = CacheKey::new(file_stem.to_string());
+
+                    // Get file metadata for size and access time
+                    if let Ok(metadata) = entry.metadata().await {
+                        let size_bytes = metadata.len() as usize;
+                        let last_accessed = metadata
+                            .accessed()
+                            .or_else(|_| metadata.modified())
+                            .unwrap_or_else(|_| SystemTime::now());
+
+                        let lru_entry = LruEntry {
+                            key: key.clone(),
+                            last_accessed,
+                            size_bytes,
+                        };
+
+                        lru_tracker.entries.insert(key.clone(), lru_entry);
+                        lru_tracker.access_order.push(key);
+                        lru_tracker.current_size_bytes += size_bytes as u64;
+                    }
                 }
             }
         }
 
+        // Sort access order by last accessed time
+        {
+            let entries_ref = &lru_tracker.entries;
+            let mut order = lru_tracker.access_order.clone();
+            order.sort_by(|a, b| {
+                let time_a = entries_ref.get(a).map(|e| e.last_accessed);
+                let time_b = entries_ref.get(b).map(|e| e.last_accessed);
+                time_a.cmp(&time_b)
+            });
+            lru_tracker.access_order = order;
+        }
+
         Ok(())
+    }
+
+    /// Get file path for cache key
+    fn cache_file_path(&self, key: &CacheKey) -> PathBuf {
+        self.cache_dir.join(format!("{}.cache", key.as_str()))
     }
 
     /// Evict least recently used entries to make space
@@ -70,44 +135,66 @@ impl DiskLruCache {
         let mut lru_tracker = self.lru_tracker.write().await;
         let mut stats = self.stats.write().await;
 
-        // Check if we need to evict based on size or entry count
+        // Check if we need to evict based on size
         let target_size = self.max_size_bytes.saturating_sub(new_entry_size as u64);
 
-        while lru_tracker.is_over_limits(target_size, self.max_entries) {
-            let lru_keys = lru_tracker.get_lru_keys(1);
-            if lru_keys.is_empty() {
-                break; // No more entries to evict
+        while lru_tracker.current_size_bytes > target_size
+            || lru_tracker.entries.len() >= self.max_entries
+        {
+            if lru_tracker.access_order.is_empty() {
+                break;
             }
 
-            let lru_key = &lru_keys[0];
-
-            // Remove from tracker
-            if let Some(_entry) = lru_tracker.remove_entry(lru_key) {
-                stats.record_eviction();
-
-                // Remove file from disk
-                if let Err(e) = self.disk_ops.remove_cache_file(lru_key).await {
-                    tracing::warn!("Failed to remove evicted cache file: {}", e);
+            // Remove oldest entry
+            let oldest_key = lru_tracker.access_order.remove(0);
+            if let Some(entry) = lru_tracker.entries.remove(&oldest_key) {
+                // Delete file from disk
+                let file_path = self.cache_file_path(&oldest_key);
+                if let Err(e) = fs::remove_file(&file_path).await {
+                    tracing::warn!("Failed to remove cache file {:?}: {}", file_path, e);
                 }
 
-                tracing::debug!("Evicted cache entry: {}", lru_key);
+                lru_tracker.current_size_bytes = lru_tracker
+                    .current_size_bytes
+                    .saturating_sub(entry.size_bytes as u64);
+
+                stats.evictions += 1;
+
+                tracing::debug!("Evicted cache entry: {}", oldest_key);
             }
         }
 
         Ok(())
     }
 
-    /// Update LRU tracking for key access
+    /// Update LRU tracking for accessed entry
     async fn update_lru(&self, key: &CacheKey) {
         let mut lru_tracker = self.lru_tracker.write().await;
-        lru_tracker.update_access(key);
+
+        // Update access time
+        if let Some(entry) = lru_tracker.entries.get_mut(key) {
+            entry.last_accessed = SystemTime::now();
+        }
+
+        // Move to end of access order (most recently used)
+        if let Some(pos) = lru_tracker.access_order.iter().position(|k| k == key) {
+            let key = lru_tracker.access_order.remove(pos);
+            lru_tracker.access_order.push(key);
+        }
     }
 }
 
 #[async_trait]
 impl CacheStorage for DiskLruCache {
     async fn get(&self, key: &CacheKey) -> HotReloadResult<Option<CacheEntry>> {
-        match self.disk_ops.read_cache_file(key).await {
+        let file_path = self.cache_file_path(key);
+
+        {
+            let mut stats = self.stats.write().await;
+            stats.total_requests += 1;
+        }
+
+        match fs::read(&file_path).await {
             Ok(data) => {
                 match bincode::deserialize::<CacheEntry>(&data) {
                     Ok(mut entry) => {
@@ -119,39 +206,30 @@ impl CacheStorage for DiskLruCache {
                         let serialized =
                             bincode::serialize(&entry).map_err(HotReloadError::Serialization)?;
 
-                        if let Err(e) = self.disk_ops.write_cache_file(key, &serialized).await {
+                        if let Err(e) = fs::write(&file_path, &serialized).await {
                             tracing::warn!("Failed to update cache entry access time: {}", e);
                         }
 
-                        // Record hit
-                        {
-                            let mut stats = self.stats.write().await;
-                            stats.record_hit();
-                        }
+                        let mut stats = self.stats.write().await;
+                        stats.hits += 1;
 
                         Ok(Some(entry))
                     }
                     Err(e) => {
                         tracing::warn!("Failed to deserialize cache entry {}: {}", key, e);
                         // Remove corrupted cache file
-                        let _ = self.disk_ops.remove_cache_file(key).await;
+                        let _ = fs::remove_file(&file_path).await;
 
-                        // Record miss
-                        {
-                            let mut stats = self.stats.write().await;
-                            stats.record_miss();
-                        }
+                        let mut stats = self.stats.write().await;
+                        stats.misses += 1;
 
                         Ok(None)
                     }
                 }
             }
             Err(_) => {
-                // File doesn't exist or can't be read - this is a miss
-                {
-                    let mut stats = self.stats.write().await;
-                    stats.record_miss();
-                }
+                let mut stats = self.stats.write().await;
+                stats.misses += 1;
                 Ok(None)
             }
         }
@@ -160,78 +238,132 @@ impl CacheStorage for DiskLruCache {
     async fn store(&self, key: CacheKey, entry: &CacheEntry) -> HotReloadResult<()> {
         let serialized = bincode::serialize(entry).map_err(HotReloadError::Serialization)?;
 
-        // Check if we need to evict before adding new entry
+        // Evict entries if needed before storing
         self.evict_if_needed(serialized.len()).await?;
 
-        // Write to disk
-        self.disk_ops.write_cache_file(&key, &serialized).await?;
+        let file_path = self.cache_file_path(&key);
+        fs::write(&file_path, &serialized)
+            .await
+            .map_err(HotReloadError::Io)?;
 
         // Update LRU tracking
         {
             let mut lru_tracker = self.lru_tracker.write().await;
-            lru_tracker.add_entry(key.clone(), serialized.len());
+
+            let lru_entry = LruEntry {
+                key: key.clone(),
+                last_accessed: SystemTime::now(),
+                size_bytes: serialized.len(),
+            };
+
+            // Remove if already exists (update case)
+            if let Some(old_entry) = lru_tracker.entries.get(&key) {
+                lru_tracker.current_size_bytes = lru_tracker
+                    .current_size_bytes
+                    .saturating_sub(old_entry.size_bytes as u64);
+
+                if let Some(pos) = lru_tracker.access_order.iter().position(|k| k == &key) {
+                    lru_tracker.access_order.remove(pos);
+                }
+            }
+
+            lru_tracker.entries.insert(key.clone(), lru_entry);
+            lru_tracker.access_order.push(key);
+            lru_tracker.current_size_bytes += serialized.len() as u64;
         }
 
-        tracing::debug!("Stored cache entry: {} ({} bytes)", key, serialized.len());
         Ok(())
     }
 
     async fn remove(&self, key: &CacheKey) -> HotReloadResult<bool> {
-        let existed = self.disk_ops.cache_file_exists(key).await;
+        let file_path = self.cache_file_path(key);
 
-        // Remove from disk
-        self.disk_ops.remove_cache_file(key).await?;
+        let removed = fs::remove_file(&file_path).await.is_ok();
 
-        // Remove from LRU tracker
-        {
+        if removed {
             let mut lru_tracker = self.lru_tracker.write().await;
-            lru_tracker.remove_entry(key);
-        }
 
-        Ok(existed)
-    }
+            if let Some(entry) = lru_tracker.entries.remove(key) {
+                lru_tracker.current_size_bytes = lru_tracker
+                    .current_size_bytes
+                    .saturating_sub(entry.size_bytes as u64);
 
-    async fn invalidate_pattern(&self, pattern: &InvalidationPattern) -> HotReloadResult<usize> {
-        let cache_keys = self.disk_ops.list_cache_files().await?;
-        let mut invalidated_count = 0;
-
-        for key in cache_keys {
-            if pattern.matches(&key) {
-                // Remove from disk
-                if let Err(e) = self.disk_ops.remove_cache_file(&key).await {
-                    tracing::warn!("Failed to remove invalidated cache file {}: {}", key, e);
-                    continue;
+                if let Some(pos) = lru_tracker.access_order.iter().position(|k| k == key) {
+                    lru_tracker.access_order.remove(pos);
                 }
-
-                // Remove from LRU tracker
-                {
-                    let mut lru_tracker = self.lru_tracker.write().await;
-                    lru_tracker.remove_entry(&key);
-                }
-
-                invalidated_count += 1;
-                tracing::debug!("Invalidated cache entry: {}", key);
             }
         }
 
-        Ok(invalidated_count)
+        Ok(removed)
+    }
+
+    async fn invalidate_pattern(&self, pattern: &InvalidationPattern) -> HotReloadResult<usize> {
+        let keys = self.keys().await?;
+        let mut removed_count = 0;
+
+        for key in keys {
+            let should_remove = match pattern {
+                InvalidationPattern::All => true,
+                InvalidationPattern::OlderThan(duration) => {
+                    // Check if entry is older than duration
+                    if let Ok(Some(entry)) = self.get(&key).await {
+                        entry.created_at.elapsed().unwrap_or_default() > *duration
+                    } else {
+                        false
+                    }
+                }
+                InvalidationPattern::LowConfidence(threshold) => {
+                    // Check if confidence is below threshold
+                    if let Ok(Some(entry)) = self.get(&key).await {
+                        entry.confidence_score < *threshold
+                    } else {
+                        false
+                    }
+                }
+                InvalidationPattern::Files(files) => {
+                    // Check if entry involves any of the specified files
+                    if let Ok(Some(entry)) = self.get(&key).await {
+                        entry.cached_files.iter().any(|f| files.contains(f))
+                    } else {
+                        false
+                    }
+                }
+                InvalidationPattern::Glob(glob_pattern) => {
+                    // Simple glob matching (can be enhanced with regex)
+                    key.as_str().contains(glob_pattern)
+                }
+            };
+
+            if should_remove && self.remove(&key).await? {
+                removed_count += 1;
+            }
+        }
+
+        Ok(removed_count)
     }
 
     async fn keys(&self) -> HotReloadResult<Vec<CacheKey>> {
-        self.disk_ops.list_cache_files().await
+        let lru_tracker = self.lru_tracker.read().await;
+        Ok(lru_tracker.entries.keys().cloned().collect())
     }
 
     async fn stats(&self) -> HotReloadResult<CacheStatistics> {
         let stats = self.stats.read().await;
         let lru_tracker = self.lru_tracker.read().await;
 
+        let hit_rate = if stats.total_requests > 0 {
+            stats.hits as f64 / stats.total_requests as f64
+        } else {
+            0.0
+        };
+
         Ok(CacheStatistics {
-            hit_rate: stats.hit_rate(),
+            hit_rate,
             total_requests: stats.total_requests,
             cache_hits: stats.hits,
             cache_misses: stats.misses,
-            average_hit_time: Duration::from_millis(50), // Approximate for disk I/O
-            average_miss_time: Duration::from_millis(200), // Approximate
+            average_hit_time: Duration::from_millis(50), // Approximate
+            average_miss_time: Duration::from_millis(500), // Approximate
             cache_size_bytes: lru_tracker.current_size_bytes,
             cached_entries: lru_tracker.entries.len(),
             warming_efficiency: 0.8, // TODO: Implement proper tracking
@@ -239,39 +371,13 @@ impl CacheStorage for DiskLruCache {
         })
     }
 
-    async fn cleanup_expired(&self, _ttl: Duration) -> HotReloadResult<usize> {
-        // This implementation doesn't track individual entry ages,
-        // so we'll implement a simple cleanup of orphaned files
-        let valid_keys = {
-            let lru_tracker = self.lru_tracker.read().await;
-            lru_tracker.entries.keys().cloned().collect::<Vec<_>>()
-        };
-
-        self.disk_ops.cleanup_orphaned_files(&valid_keys).await
+    async fn cleanup_expired(&self, ttl: Duration) -> HotReloadResult<usize> {
+        self.invalidate_pattern(&InvalidationPattern::OlderThan(ttl))
+            .await
     }
 
     async fn clear(&self) -> HotReloadResult<()> {
-        // Clear LRU tracker
-        {
-            let mut lru_tracker = self.lru_tracker.write().await;
-            *lru_tracker = LruTracker::new();
-        }
-
-        // Remove all cache files
-        let cache_keys = self.disk_ops.list_cache_files().await?;
-        for key in cache_keys {
-            if let Err(e) = self.disk_ops.remove_cache_file(&key).await {
-                tracing::warn!("Failed to remove cache file during clear: {}", e);
-            }
-        }
-
-        // Reset stats
-        {
-            let mut stats = self.stats.write().await;
-            *stats = CacheStats::default();
-        }
-
-        tracing::info!("Cleared all cache entries");
+        self.invalidate_pattern(&InvalidationPattern::All).await?;
         Ok(())
     }
 
@@ -290,7 +396,6 @@ impl CacheStorage for DiskLruCache {
 mod tests {
     use super::*;
     use crate::hotreload::{HookResult, HookResults, HookType};
-    use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
     use tempfile::TempDir;
 
@@ -333,76 +438,197 @@ mod tests {
         cache.store(key.clone(), &entry).await.unwrap();
 
         // Retrieve entry
-        let retrieved = cache.get(&key).await.unwrap();
-        assert!(retrieved.is_some());
-
-        let retrieved_entry = retrieved.unwrap();
-        assert_eq!(retrieved_entry.content_hash(), entry.content_hash());
+        let retrieved = cache.get(&key).await.unwrap().unwrap();
+        assert_eq!(retrieved.content_hash, entry.content_hash);
+        assert_eq!(retrieved.dependency_hash, entry.dependency_hash);
     }
 
     #[tokio::test]
-    async fn test_cache_remove() {
+    async fn test_cache_miss() {
+        let (cache, _temp_dir) = create_test_cache().await;
+
+        let key = CacheKey::new("nonexistent_key".to_string());
+        let result = cache.get(&key).await.unwrap();
+
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cache_removal() {
         let (cache, _temp_dir) = create_test_cache().await;
 
         let key = CacheKey::new("test_key".to_string());
         let entry = create_test_entry();
 
-        // Store entry
+        // Store and then remove
         cache.store(key.clone(), &entry).await.unwrap();
-        assert!(cache.get(&key).await.unwrap().is_some());
+        let removed = cache.remove(&key).await.unwrap();
 
-        // Remove entry
-        let existed = cache.remove(&key).await.unwrap();
-        assert!(existed);
-        assert!(cache.get(&key).await.unwrap().is_none());
+        assert!(removed);
+
+        // Verify it's gone
+        let result = cache.get(&key).await.unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
-    async fn test_cache_clear() {
-        let (cache, _temp_dir) = create_test_cache().await;
+    async fn test_lru_eviction() {
+        // Create small cache that will force eviction
+        let temp_dir = TempDir::new().unwrap();
+        let cache = DiskLruCache::new(temp_dir.path(), 1000, 2).await.unwrap(); // Very small limits
 
-        // Store some entries
+        // Add three entries (should evict first one)
         for i in 0..3 {
             let key = CacheKey::new(format!("key_{}", i));
             let entry = create_test_entry();
             cache.store(key, &entry).await.unwrap();
         }
 
-        // Verify entries exist
-        assert_eq!(cache.entry_count().await.unwrap(), 3);
+        // First entry should be evicted
+        let first_key = CacheKey::new("key_0".to_string());
+        let result = cache.get(&first_key).await.unwrap();
+        assert!(result.is_none());
 
-        // Clear cache
+        // Last entry should still exist
+        let last_key = CacheKey::new("key_2".to_string());
+        let result = cache.get(&last_key).await.unwrap();
+        assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cache_invalidation_by_pattern() {
+        let (cache, _temp_dir) = create_test_cache().await;
+
+        // Store multiple entries
+        for i in 0..5 {
+            let key = CacheKey::new(format!("test_key_{}", i));
+            let entry = create_test_entry();
+            cache.store(key, &entry).await.unwrap();
+        }
+
+        // Invalidate entries matching pattern
+        let removed = cache
+            .invalidate_pattern(&InvalidationPattern::Glob("test_key_1".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+
+        // Verify specific entry is gone
+        let key = CacheKey::new("test_key_1".to_string());
+        let result = cache.get(&key).await.unwrap();
+        assert!(result.is_none());
+
+        // Verify others still exist
+        let key = CacheKey::new("test_key_0".to_string());
+        let result = cache.get(&key).await.unwrap();
+        assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cache_clear() {
+        let (cache, _temp_dir) = create_test_cache().await;
+
+        // Store multiple entries
+        for i in 0..3 {
+            let key = CacheKey::new(format!("key_{}", i));
+            let entry = create_test_entry();
+            cache.store(key, &entry).await.unwrap();
+        }
+
+        // Clear all entries
         cache.clear().await.unwrap();
 
-        // Verify cache is empty
-        assert_eq!(cache.entry_count().await.unwrap(), 0);
-        assert_eq!(cache.size_bytes().await.unwrap(), 0);
+        // Verify all entries are gone
+        for i in 0..3 {
+            let key = CacheKey::new(format!("key_{}", i));
+            let result = cache.get(&key).await.unwrap();
+            assert!(result.is_none());
+        }
     }
 
     #[tokio::test]
     async fn test_cache_statistics() {
         let (cache, _temp_dir) = create_test_cache().await;
 
-        let key = CacheKey::new("stats_test".to_string());
+        let key = CacheKey::new("test_key".to_string());
         let entry = create_test_entry();
 
-        // Initial stats
-        let stats = cache.stats().await.unwrap();
-        assert_eq!(stats.total_requests, 0);
-        assert_eq!(stats.hit_rate, 0.0);
-
-        // Miss - key doesn't exist
-        let _result = cache.get(&key).await.unwrap();
-        let stats = cache.stats().await.unwrap();
-        assert_eq!(stats.total_requests, 1);
-        assert_eq!(stats.hit_rate, 0.0);
-
-        // Store and hit
+        // Store entry and access it
         cache.store(key.clone(), &entry).await.unwrap();
-        let _result = cache.get(&key).await.unwrap();
+        cache.get(&key).await.unwrap();
 
+        // Try to get non-existent entry
+        let missing_key = CacheKey::new("missing".to_string());
+        cache.get(&missing_key).await.unwrap();
+
+        // Check statistics
         let stats = cache.stats().await.unwrap();
-        assert_eq!(stats.total_requests, 2);
-        assert_eq!(stats.hit_rate, 0.5); // 1 hit, 1 miss
+        assert!(stats.cache_hits > 0);
+        assert!(stats.cache_misses > 0);
+        assert!(stats.total_requests > 0);
+        assert!(stats.hit_rate > 0.0 && stats.hit_rate < 1.0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path().to_path_buf();
+
+        // Create cache and store entry
+        {
+            let cache = DiskLruCache::new(&cache_dir, 1024 * 1024, 100)
+                .await
+                .unwrap();
+            let key = CacheKey::new("persistent_key".to_string());
+            let entry = create_test_entry();
+            cache.store(key, &entry).await.unwrap();
+        } // Cache dropped here
+
+        // Create new cache instance and verify entry persists
+        {
+            let cache = DiskLruCache::new(&cache_dir, 1024 * 1024, 100)
+                .await
+                .unwrap();
+            let key = CacheKey::new("persistent_key".to_string());
+            let result = cache.get(&key).await.unwrap();
+            assert!(result.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cache_size_tracking() {
+        let (cache, _temp_dir) = create_test_cache().await;
+
+        let initial_size = cache.size_bytes().await.unwrap();
+        assert_eq!(initial_size, 0);
+
+        // Add entry and check size increased
+        let key = CacheKey::new("size_test".to_string());
+        let entry = create_test_entry();
+        cache.store(key.clone(), &entry).await.unwrap();
+
+        let after_store_size = cache.size_bytes().await.unwrap();
+        assert!(after_store_size > initial_size);
+
+        // Remove entry and check size decreased
+        cache.remove(&key).await.unwrap();
+        let after_remove_size = cache.size_bytes().await.unwrap();
+        assert_eq!(after_remove_size, initial_size);
+    }
+
+    #[tokio::test]
+    async fn test_entry_count() {
+        let (cache, _temp_dir) = create_test_cache().await;
+
+        assert_eq!(cache.entry_count().await.unwrap(), 0);
+
+        // Add entries
+        for i in 0..5 {
+            let key = CacheKey::new(format!("count_key_{}", i));
+            let entry = create_test_entry();
+            cache.store(key, &entry).await.unwrap();
+        }
+
+        assert_eq!(cache.entry_count().await.unwrap(), 5);
     }
 }

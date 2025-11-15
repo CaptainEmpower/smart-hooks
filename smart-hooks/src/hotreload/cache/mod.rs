@@ -94,11 +94,6 @@ impl CacheEntry {
         self.created_at.elapsed().unwrap_or_default() > ttl
     }
 
-    /// Get content hash for this cache entry
-    pub fn content_hash(&self) -> &str {
-        &self.content_hash
-    }
-
     /// Estimate memory/disk size of cache entry
     fn estimate_size(hook_results: &HookResults, cached_files: &[PathBuf]) -> usize {
         let mut size = 0;
@@ -203,20 +198,5 @@ impl InvalidationScope {
 
     pub fn is_empty(&self) -> bool {
         self.affected_files.is_empty() && self.affected_tests.is_empty()
-    }
-}
-
-impl InvalidationPattern {
-    /// Check if this pattern matches the given cache key
-    pub fn matches(&self, key: &CacheKey) -> bool {
-        match self {
-            InvalidationPattern::All => true,
-            InvalidationPattern::Glob(pattern) => {
-                // Simple glob matching - would use a proper glob library in real implementation
-                key.as_str().contains(&pattern.replace('*', ""))
-            }
-            // Other patterns would need cache entry access to implement properly
-            _ => false,
-        }
     }
 }
