@@ -222,7 +222,7 @@ impl BackgroundWarmingService {
     }
 
     /// Report successful prediction (for learning)
-    pub async fn report_successful_prediction(&mut self, files: &[PathBuf]) {
+    pub async fn report_successful_prediction(&self, files: &[PathBuf]) {
         self.pattern_learner
             .record_successful_prediction(files)
             .await;
@@ -232,8 +232,8 @@ impl BackgroundWarmingService {
     }
 
     /// Report wasted effort (for learning)
-    pub async fn report_wasted_effort(&mut self, files: &[PathBuf]) {
-        self.pattern_learner.record_wasted_effort(files, &[]).await;
+    pub async fn report_wasted_effort(&self, files: &[PathBuf]) {
+        self.pattern_learner.record_wasted_effort(files).await;
 
         let mut stats = self.stats.lock().await;
         stats.wasted_effort += 1;
@@ -345,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_successful_prediction_reporting() {
-        let mut service = create_test_service().await;
+        let service = create_test_service().await;
         let files = create_test_files();
 
         let initial_stats = service.get_stats().await;
@@ -360,7 +360,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_wasted_effort_reporting() {
-        let mut service = create_test_service().await;
+        let service = create_test_service().await;
         let files = create_test_files();
 
         let initial_stats = service.get_stats().await;

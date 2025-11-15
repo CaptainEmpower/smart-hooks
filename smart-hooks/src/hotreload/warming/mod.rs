@@ -94,7 +94,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_stats_integration() {
-        let mut service = BackgroundWarmingService::new().await.unwrap();
+        let service = BackgroundWarmingService::new().await.unwrap();
         let files = create_test_files();
 
         // Test stats tracking integration
