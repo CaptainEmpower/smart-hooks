@@ -1,7 +1,7 @@
 /// Dependency impact analysis using multi-language project detection
 use anyhow::{Context, Result};
 use smart_hooks::dependency::multi_lang_analyzer::MultiLangDependencyAnalyzer;
-use smart_hooks::project::{Language, MultiLangProjectDiscovery};
+use smart_hooks::project::{MultiLangProjectDiscovery, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -22,14 +22,13 @@ pub async fn run(
     }
 
     // Discover the project configuration
-    let project_config =
-        MultiLangProjectDiscovery::discover(".").context("Failed to discover project structure")?;
+    let project_config = MultiLangProjectDiscovery::discover(".")
+        .context("Failed to discover project structure")?;
 
     if verbose {
-        println!(
-            "📊 Project: {} (Primary language: {:?})",
-            project_config.metadata.name, project_config.primary_language
-        );
+        println!("📊 Project: {} (Primary language: {:?})", 
+                project_config.metadata.name, 
+                project_config.primary_language);
     }
 
     // Create analyzer
@@ -69,7 +68,7 @@ pub async fn run(
         // Analyze dependencies for each file
         for file in &file_list {
             let file_path = Path::new(file);
-
+            
             if !file_path.exists() {
                 if verbose {
                     println!("⚠️  File not found: {}", file);
@@ -84,8 +83,7 @@ pub async fn run(
         }
 
         // Find affected tests
-        let file_paths_for_lang: Vec<PathBuf> =
-            file_list.iter().map(|f| PathBuf::from(f)).collect();
+        let file_paths_for_lang: Vec<PathBuf> = file_list.iter().map(|f| PathBuf::from(f)).collect();
         match analyzer.find_cross_language_affected_tests(&file_paths_for_lang) {
             Ok(tests) => {
                 if !tests.is_empty() {
@@ -100,12 +98,10 @@ pub async fn run(
                             smart_hooks::dependency::types::TestType::Benchmark { .. } => "⚖️",
                             smart_hooks::dependency::types::TestType::Custom { .. } => "🔧",
                         };
-
+                        
                         println!("   {} {}: {}", test_type_symbol, test.test_type, test.name);
                         if verbose && !test.dependencies.is_empty() {
-                            let dep_names: Vec<String> = test
-                                .dependencies
-                                .iter()
+                            let dep_names: Vec<String> = test.dependencies.iter()
                                 .map(|p| p.display().to_string())
                                 .collect();
                             println!("      🔗 Dependencies: {}", dep_names.join(", "));
@@ -128,15 +124,9 @@ pub async fn run(
 
     if total_affected_tests > 0 {
         println!("\n💡 Recommended Actions:");
-        println!(
-            "   • Run {} affected tests before committing",
-            total_affected_tests
-        );
+        println!("   • Run {} affected tests before committing", total_affected_tests);
         if total_dependencies > 10 {
-            println!(
-                "   • Consider reducing coupling - {} dependencies found",
-                total_dependencies
-            );
+            println!("   • Consider reducing coupling - {} dependencies found", total_dependencies);
         }
         println!("   • Review impact on dependent modules");
     }
@@ -147,18 +137,14 @@ pub async fn run(
 fn show_dependency_graph(
     dependencies: &[smart_hooks::dependency::types::Dependency],
     file_path: &Path,
-    _verbose: bool,
+    _verbose: bool
 ) {
     println!("      {} (current file)", file_path.display());
-
+    
     for (i, dep) in dependencies.iter().enumerate() {
         let is_last = i == dependencies.len() - 1;
-        let prefix = if is_last {
-            "      └── "
-        } else {
-            "      ├── "
-        };
-
+        let prefix = if is_last { "      └── " } else { "      ├── " };
+        
         match &dep.dependency_type {
             smart_hooks::dependency::types::DependencyType::ModuleUse => {
                 println!("{}{}", prefix, dep.name);

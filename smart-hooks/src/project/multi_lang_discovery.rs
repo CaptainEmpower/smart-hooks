@@ -292,9 +292,10 @@ impl MultiLangProjectDiscovery {
         }
 
         // If no standard directories found, check for language files in project root
-        if source_dirs.is_empty() && Self::has_language_files(project_root, language)? {
-            source_dirs.push(project_root.to_path_buf());
-        }
+        if source_dirs.is_empty()
+            && Self::has_language_files(project_root, language)? {
+                source_dirs.push(project_root.to_path_buf());
+            }
 
         Ok(source_dirs)
     }

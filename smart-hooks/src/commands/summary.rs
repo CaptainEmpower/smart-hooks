@@ -1,11 +1,15 @@
 /// Project summary and reporting functionality
 use anyhow::{Context, Result};
-use serde_json::json;
+use smart_hooks::project::{MultiLangProjectDiscovery, Language};
 use smart_hooks::dependency::multi_lang_analyzer::MultiLangDependencyAnalyzer;
-use smart_hooks::project::{Language, MultiLangProjectDiscovery};
+use serde_json::json;
 use std::path::PathBuf;
 
-pub async fn run(project_dir: PathBuf, format: String, verbose: bool) -> Result<()> {
+pub async fn run(
+    project_dir: PathBuf,
+    format: String,
+    verbose: bool,
+) -> Result<()> {
     if verbose {
         println!("📊 Smart Hooks Project Summary");
         println!("Analyzing project: {}", project_dir.display());
@@ -61,35 +65,33 @@ async fn collect_project_stats(
     for lang_config in &config.languages {
         let file_count = count_files_for_language(&lang_config.language, &config.project_root)?;
         stats.total_files += file_count;
-        stats
-            .files_by_language
-            .insert(lang_config.language.clone(), file_count);
+        stats.files_by_language.insert(lang_config.language.clone(), file_count);
 
         // Analyze dependencies for sample files
-        if let Ok(sample_files) =
-            get_sample_files_for_language(&lang_config.language, &config.project_root, 5)
-        {
+        if let Ok(sample_files) = get_sample_files_for_language(&lang_config.language, &config.project_root, 5) {
             for file_path in sample_files {
                 // Note: Individual file analysis not implemented yet
                 // Using simplified dependency counting for now
                 if file_path.extension().and_then(|s| s.to_str()) == Some("rs") {
-                    let sample_deps = vec![smart_hooks::dependency::types::Dependency {
-                        name: "sample".to_string(),
-                        dependency_type: smart_hooks::dependency::types::DependencyType::ModuleUse,
-                        path: file_path.clone(),
-                        weight: 0.5,
-                    }];
+                    let sample_deps = vec![
+                        smart_hooks::dependency::types::Dependency {
+                            name: "sample".to_string(),
+                            dependency_type: smart_hooks::dependency::types::DependencyType::ModuleUse,
+                            path: file_path.clone(),
+                            weight: 0.5,
+                        }
+                    ];
                     let dependencies = sample_deps;
                     stats.total_dependencies += dependencies.len();
-
+                    
                     for dep in dependencies {
                         match dep.dependency_type {
                             smart_hooks::dependency::types::DependencyType::ModuleUse => {
                                 stats.external_dependencies += 1;
                             }
-                            smart_hooks::dependency::types::DependencyType::FunctionCall
-                            | smart_hooks::dependency::types::DependencyType::TraitImpl
-                            | smart_hooks::dependency::types::DependencyType::MacroUse => {
+                            smart_hooks::dependency::types::DependencyType::FunctionCall |
+                            smart_hooks::dependency::types::DependencyType::TraitImpl |
+                            smart_hooks::dependency::types::DependencyType::MacroUse => {
                                 stats.internal_dependencies += 1;
                             }
                             _ => {
@@ -138,9 +140,10 @@ fn calculate_complexity_score(stats: &ProjectStats) -> f32 {
     };
 
     // Simple complexity formula (lower is better)
-    let complexity =
-        (language_count * 0.1) + (avg_files_per_language * 0.01) + (dependency_ratio * 0.5)
-            - (test_coverage_ratio * 0.3);
+    let complexity = (language_count * 0.1) + 
+                    (avg_files_per_language * 0.01) + 
+                    (dependency_ratio * 0.5) - 
+                    (test_coverage_ratio * 0.3);
 
     complexity.max(0.0)
 }
@@ -149,23 +152,16 @@ fn count_files_for_language(language: &Language, root_path: &std::path::Path) ->
     let extensions = get_extensions_for_language(language);
     let mut count = 0;
 
-    fn count_files_recursive(
-        dir: &std::path::Path,
-        extensions: &[&str],
-        count: &mut usize,
-    ) -> Result<()> {
+    fn count_files_recursive(dir: &std::path::Path, extensions: &[&str], count: &mut usize) -> Result<()> {
         if dir.is_dir() {
             for entry in std::fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
-
+                
                 if path.is_dir() {
                     // Skip common directories that don't contain source code
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if matches!(
-                            name,
-                            "target" | "node_modules" | ".git" | "build" | "dist" | "__pycache__"
-                        ) {
+                        if matches!(name, "target" | "node_modules" | ".git" | "build" | "dist" | "__pycache__") {
                             continue;
                         }
                     }
@@ -185,18 +181,18 @@ fn count_files_for_language(language: &Language, root_path: &std::path::Path) ->
 }
 
 fn get_sample_files_for_language(
-    language: &Language,
-    root_path: &std::path::Path,
-    max_files: usize,
+    language: &Language, 
+    root_path: &std::path::Path, 
+    max_files: usize
 ) -> Result<Vec<PathBuf>> {
     let extensions = get_extensions_for_language(language);
     let mut files = Vec::new();
 
     fn collect_files_recursive(
-        dir: &std::path::Path,
-        extensions: &[&str],
+        dir: &std::path::Path, 
+        extensions: &[&str], 
         files: &mut Vec<PathBuf>,
-        max_files: usize,
+        max_files: usize
     ) -> Result<()> {
         if files.len() >= max_files {
             return Ok(());
@@ -206,13 +202,10 @@ fn get_sample_files_for_language(
             for entry in std::fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
-
+                
                 if path.is_dir() {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if matches!(
-                            name,
-                            "target" | "node_modules" | ".git" | "build" | "dist" | "__pycache__"
-                        ) {
+                        if matches!(name, "target" | "node_modules" | ".git" | "build" | "dist" | "__pycache__") {
                             continue;
                         }
                     }
@@ -233,12 +226,12 @@ fn get_sample_files_for_language(
 
 fn find_tests_for_language(
     language: &Language,
-    root_path: &std::path::Path,
+    root_path: &std::path::Path
 ) -> Result<Vec<smart_hooks::dependency::types::TestTarget>> {
     // This is a simplified implementation
     // In a real scenario, we'd use the actual test discovery logic
     let mut tests = Vec::new();
-
+    
     match language {
         Language::Rust => {
             // Look for #[test] functions and integration tests
@@ -249,12 +242,11 @@ fn find_tests_for_language(
                         for i in 0..test_count {
                             tests.push(smart_hooks::dependency::types::TestTarget {
                                 name: format!("test_{}", i),
-                                test_type: smart_hooks::dependency::types::TestType::Unit {
-                                    module: file
-                                        .file_stem()
+                                test_type: smart_hooks::dependency::types::TestType::Unit { 
+                                    module: file.file_stem()
                                         .and_then(|s| s.to_str())
                                         .unwrap_or("unknown")
-                                        .to_string(),
+                                        .to_string()
                                 },
                                 command: vec!["cargo".to_string(), "test".to_string()],
                                 dependencies: vec![file.clone()],
@@ -270,8 +262,8 @@ fn find_tests_for_language(
             // This is a simplified implementation
             tests.push(smart_hooks::dependency::types::TestTarget {
                 name: "example_test".to_string(),
-                test_type: smart_hooks::dependency::types::TestType::Unit {
-                    module: "example".to_string(),
+                test_type: smart_hooks::dependency::types::TestType::Unit { 
+                    module: "example".to_string() 
                 },
                 command: vec!["npm".to_string(), "test".to_string()],
                 dependencies: vec![],
@@ -308,7 +300,7 @@ fn output_text(
     println!("📊 Project Summary Report");
     println!("{}", "=".repeat(60));
     println!();
-
+    
     // Project info
     println!("📋 Project Information:");
     println!("   Name: {}", config.metadata.name);
@@ -331,10 +323,8 @@ fn output_text(
         println!("   Total Dependencies: {}", stats.total_dependencies);
         println!("   External Dependencies: {}", stats.external_dependencies);
         println!("   Internal Dependencies: {}", stats.internal_dependencies);
-        println!(
-            "   Avg Dependencies/File: {:.1}",
-            stats.total_dependencies as f32 / stats.total_files.max(1) as f32
-        );
+        println!("   Avg Dependencies/File: {:.1}", 
+                stats.total_dependencies as f32 / stats.total_files.max(1) as f32);
         println!();
     }
 
@@ -345,17 +335,15 @@ fn output_text(
         for (test_type, count) in &stats.tests_by_type {
             println!("   {}: {} tests", test_type, count);
         }
-        println!(
-            "   Test Ratio: {:.2} tests/file",
-            stats.total_tests as f32 / stats.total_files.max(1) as f32
-        );
+        println!("   Test Ratio: {:.2} tests/file", 
+                stats.total_tests as f32 / stats.total_files.max(1) as f32);
         println!();
     }
 
     // Complexity assessment
     println!("🎯 Project Assessment:");
     println!("   Complexity Score: {:.2}", stats.complexity_score);
-
+    
     let complexity_level = if stats.complexity_score < 1.0 {
         "🟢 Simple"
     } else if stats.complexity_score < 2.0 {
@@ -369,10 +357,7 @@ fn output_text(
     // Recommendations
     println!("💡 Recommendations:");
     if stats.files_by_language.len() > 3 {
-        println!(
-            "   • Consider language consolidation - {} languages detected",
-            stats.files_by_language.len()
-        );
+        println!("   • Consider language consolidation - {} languages detected", stats.files_by_language.len());
     }
     if stats.total_dependencies > stats.total_files * 5 {
         println!("   • High dependency count - consider reducing coupling");

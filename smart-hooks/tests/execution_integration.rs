@@ -327,7 +327,7 @@ fn test_invalid_cargo_commands() {
 fn test_test_plan_with_different_configurations() {
     let test_files = vec![
         "project/src/core/business_logic.rs".to_string(),
-        "project/src/apply/strategy.rs".to_string(), // This should trigger BDD tests
+        "project/src/apply/strategy.rs".to_string(),  // This should trigger BDD tests
         "project/src/utils/helpers.rs".to_string(),
     ];
 

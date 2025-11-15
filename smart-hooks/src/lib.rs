@@ -4,16 +4,11 @@
 ///
 /// All modules follow SRP with maximum 300 LOC per file
 /// Phase 2: Extended with multi-language project support
-/// Phase 3: Hot reload system for cache-first execution
 pub mod analysis;
 pub mod dependency;
 pub mod execution;
 pub mod project;
 pub mod utilities;
-
-// Hot reload system (Phase 3)
-#[cfg(feature = "hotreload")]
-pub mod hotreload;
 
 // Re-export commonly used types and functions
 pub use analysis::bdd::{BddFeatureSelection, BddFeatureSelector, FileChange as BddFileChange};
@@ -44,13 +39,6 @@ pub use dependency::{
 pub use dependency::{
     LanguageDependencyAnalyzer, MultiLangDependencyAnalyzer, PhpDependencyAnalyzer,
     PythonDependencyAnalyzer, TypeScriptDependencyAnalyzer,
-};
-
-// Hot reload system exports
-#[cfg(feature = "hotreload")]
-pub use hotreload::{
-    BackgroundWarmingService, CacheEntry, CacheKey, CacheStorage, DiskLruCache, FileChangeTracker,
-    HookResult, HookResults, HookType, HotReloadConfig, HotReloadEngine,
 };
 
 // Legacy compatibility - keep the utils module for existing binaries

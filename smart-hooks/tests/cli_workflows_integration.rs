@@ -396,26 +396,14 @@ fn test_output_verbosity_levels() {
         .expect("Failed to execute verbose mode");
 
     if !output_normal.status.success() {
-        println!(
-            "Normal command failed. Stderr: {}",
-            String::from_utf8_lossy(&output_normal.stderr)
-        );
-        println!(
-            "Normal command failed. Stdout: {}",
-            String::from_utf8_lossy(&output_normal.stdout)
-        );
+        println!("Normal command failed. Stderr: {}", String::from_utf8_lossy(&output_normal.stderr));
+        println!("Normal command failed. Stdout: {}", String::from_utf8_lossy(&output_normal.stdout));
     }
     if !output_verbose.status.success() {
-        println!(
-            "Verbose command failed. Stderr: {}",
-            String::from_utf8_lossy(&output_verbose.stderr)
-        );
-        println!(
-            "Verbose command failed. Stdout: {}",
-            String::from_utf8_lossy(&output_verbose.stdout)
-        );
+        println!("Verbose command failed. Stderr: {}", String::from_utf8_lossy(&output_verbose.stderr));
+        println!("Verbose command failed. Stdout: {}", String::from_utf8_lossy(&output_verbose.stdout));
     }
-
+    
     assert!(output_normal.status.success());
     assert!(output_verbose.status.success());
 

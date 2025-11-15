@@ -1,6 +1,6 @@
 /// Auto-linting implementation using multi-language project detection
 use anyhow::{Context, Result};
-use smart_hooks::project::{Language, MultiLangProjectDiscovery};
+use smart_hooks::project::{MultiLangProjectDiscovery, Language};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -22,14 +22,13 @@ pub async fn run(
     }
 
     // Discover the project configuration
-    let project_config =
-        MultiLangProjectDiscovery::discover(".").context("Failed to discover project structure")?;
+    let project_config = MultiLangProjectDiscovery::discover(".")
+        .context("Failed to discover project structure")?;
 
     if verbose {
-        println!(
-            "📊 Project: {} (Primary language: {:?})",
-            project_config.metadata.name, project_config.primary_language
-        );
+        println!("📊 Project: {} (Primary language: {:?})", 
+                project_config.metadata.name, 
+                project_config.primary_language);
     }
 
     // Group files by language
@@ -37,12 +36,7 @@ pub async fn run(
 
     if verbose {
         for (lang, file_list) in &files_by_language {
-            println!(
-                "📝 {} files for {:?}: {}",
-                file_list.len(),
-                lang,
-                file_list.len()
-            );
+            println!("📝 {} files for {:?}: {}", file_list.len(), lang, file_list.len());
         }
     }
 
@@ -62,18 +56,14 @@ pub async fn run(
         }
 
         // Find the language configuration
-        if let Some(lang_config) = project_config
-            .languages
-            .iter()
-            .find(|c| c.language == language)
-        {
+        if let Some(lang_config) = project_config.languages.iter().find(|c| c.language == language) {
             match lint_files_for_language(&language, &file_list, fix, verbose, lang_config).await {
                 Ok(count) => {
                     total_linted += count;
                     if verbose && count > 0 {
                         println!("✅ Linted {} {:?} files", count, language);
                     }
-                }
+                },
                 Err(e) => {
                     total_errors += 1;
                     eprintln!("❌ Failed to lint {:?} files: {}", language, e);
@@ -118,7 +108,7 @@ async fn lint_files_for_language(
             Language::Rust => vec!["cargo".to_string(), "clippy".to_string()],
             Language::TypeScript | Language::JavaScript => {
                 vec!["npx".to_string(), "eslint".to_string()]
-            }
+            },
             Language::Python => vec!["python".to_string(), "-m".to_string(), "flake8".to_string()],
             Language::PHP => vec!["vendor/bin/phpcs".to_string()],
             _ => {
@@ -136,23 +126,18 @@ async fn lint_files_for_language(
         match language {
             Language::Rust => {
                 final_command.push("--fix".to_string());
-            }
+            },
             Language::TypeScript | Language::JavaScript => {
                 final_command.push("--fix".to_string());
-            }
+            },
             Language::Python => {
                 // flake8 doesn't have auto-fix, use autopep8 instead
-                final_command = vec![
-                    "python".to_string(),
-                    "-m".to_string(),
-                    "autopep8".to_string(),
-                    "--in-place".to_string(),
-                ];
-            }
+                final_command = vec!["python".to_string(), "-m".to_string(), "autopep8".to_string(), "--in-place".to_string()];
+            },
             Language::PHP => {
                 // Use php-cs-fixer instead of phpcs for fixing
                 final_command = vec!["vendor/bin/php-cs-fixer".to_string(), "fix".to_string()];
-            }
+            },
             _ => {}
         }
     }
@@ -183,7 +168,7 @@ async fn lint_files_for_language(
             }
 
             Ok(files.len())
-        }
+        },
         Language::TypeScript | Language::JavaScript | Language::Python | Language::PHP => {
             // Run on individual files
             let mut linted_count = 0;
@@ -205,8 +190,7 @@ async fn lint_files_for_language(
                     println!("🔧 Running: {} {}", final_command.join(" "), file);
                 }
 
-                let output = cmd
-                    .output()
+                let output = cmd.output()
                     .with_context(|| format!("Failed to lint file: {}", file))?;
 
                 if output.status.success() {
@@ -214,7 +198,7 @@ async fn lint_files_for_language(
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let stdout = String::from_utf8_lossy(&output.stdout);
-
+                    
                     if fix {
                         // In fix mode, try to apply fixes but still show warnings
                         linted_count += 1;
@@ -242,7 +226,7 @@ async fn lint_files_for_language(
             }
 
             Ok(linted_count)
-        }
+        },
         _ => {
             if verbose {
                 println!("⚠️  Linting not implemented for {:?}", language);

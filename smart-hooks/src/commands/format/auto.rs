@@ -1,6 +1,6 @@
 /// Auto-formatting implementation using multi-language project detection
 use anyhow::{Context, Result};
-use smart_hooks::project::{Language, MultiLangProjectDiscovery};
+use smart_hooks::project::{MultiLangProjectDiscovery, Language};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -22,14 +22,13 @@ pub async fn run(
     }
 
     // Discover the project configuration
-    let project_config =
-        MultiLangProjectDiscovery::discover(".").context("Failed to discover project structure")?;
+    let project_config = MultiLangProjectDiscovery::discover(".")
+        .context("Failed to discover project structure")?;
 
     if verbose {
-        println!(
-            "📊 Project: {} (Primary language: {:?})",
-            project_config.metadata.name, project_config.primary_language
-        );
+        println!("📊 Project: {} (Primary language: {:?})", 
+                project_config.metadata.name, 
+                project_config.primary_language);
     }
 
     // Group files by language
@@ -37,12 +36,7 @@ pub async fn run(
 
     if verbose {
         for (lang, file_list) in &files_by_language {
-            println!(
-                "📝 {} files for {:?}: {}",
-                file_list.len(),
-                lang,
-                file_list.len()
-            );
+            println!("📝 {} files for {:?}: {}", file_list.len(), lang, file_list.len());
         }
     }
 
@@ -62,20 +56,14 @@ pub async fn run(
         }
 
         // Find the language configuration
-        if let Some(lang_config) = project_config
-            .languages
-            .iter()
-            .find(|c| c.language == language)
-        {
-            match format_files_for_language(&language, &file_list, check_only, verbose, lang_config)
-                .await
-            {
+        if let Some(lang_config) = project_config.languages.iter().find(|c| c.language == language) {
+            match format_files_for_language(&language, &file_list, check_only, verbose, lang_config).await {
                 Ok(count) => {
                     total_formatted += count;
                     if verbose && count > 0 {
                         println!("✅ Formatted {} {:?} files", count, language);
                     }
-                }
+                },
                 Err(e) => {
                     total_errors += 1;
                     eprintln!("❌ Failed to format {:?} files: {}", language, e);
@@ -96,10 +84,7 @@ pub async fn run(
             println!("   Errors: {} languages", total_errors);
         }
         if check_only && total_formatted > 0 {
-            println!(
-                "   Check mode: Found {} files that need formatting",
-                total_formatted
-            );
+            println!("   Check mode: Found {} files that need formatting", total_formatted);
             return Err(anyhow::anyhow!("Found files that need formatting"));
         }
     }
@@ -126,12 +111,8 @@ async fn format_files_for_language(
         match language {
             Language::Rust => vec!["cargo".to_string(), "fmt".to_string()],
             Language::TypeScript | Language::JavaScript => {
-                vec![
-                    "npx".to_string(),
-                    "prettier".to_string(),
-                    "--write".to_string(),
-                ]
-            }
+                vec!["npx".to_string(), "prettier".to_string(), "--write".to_string()]
+            },
             Language::Python => vec!["python".to_string(), "-m".to_string(), "black".to_string()],
             Language::PHP => vec!["vendor/bin/php-cs-fixer".to_string(), "fix".to_string()],
             _ => {
@@ -149,19 +130,19 @@ async fn format_files_for_language(
         match language {
             Language::Rust => {
                 final_command.push("--check".to_string());
-            }
+            },
             Language::TypeScript | Language::JavaScript => {
                 // Replace --write with --check
                 if let Some(pos) = final_command.iter().position(|x| x == "--write") {
                     final_command[pos] = "--check".to_string();
                 }
-            }
+            },
             Language::Python => {
                 final_command.push("--check".to_string());
-            }
+            },
             Language::PHP => {
                 final_command.push("--dry-run".to_string());
-            }
+            },
             _ => {}
         }
     }
@@ -184,15 +165,13 @@ async fn format_files_for_language(
                 if check_only {
                     return Err(anyhow::anyhow!("Code needs formatting"));
                 } else {
-                    return Err(anyhow::anyhow!(
-                        "Formatting failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    ));
+                    return Err(anyhow::anyhow!("Formatting failed: {}", 
+                        String::from_utf8_lossy(&output.stderr)));
                 }
             }
 
             Ok(files.len())
-        }
+        },
         Language::TypeScript | Language::JavaScript | Language::Python | Language::PHP => {
             // Run on individual files
             let mut formatted_count = 0;
@@ -213,8 +192,7 @@ async fn format_files_for_language(
                     println!("🔧 Running: {} {}", final_command.join(" "), file);
                 }
 
-                let output = cmd
-                    .output()
+                let output = cmd.output()
                     .with_context(|| format!("Failed to format file: {}", file))?;
 
                 if output.status.success() {
@@ -224,17 +202,14 @@ async fn format_files_for_language(
                         // In check mode, non-zero exit usually means formatting is needed
                         formatted_count += 1;
                     } else {
-                        eprintln!(
-                            "⚠️  Failed to format {}: {}",
-                            file,
-                            String::from_utf8_lossy(&output.stderr)
-                        );
+                        eprintln!("⚠️  Failed to format {}: {}", 
+                            file, String::from_utf8_lossy(&output.stderr));
                     }
                 }
             }
 
             Ok(formatted_count)
-        }
+        },
         _ => {
             if verbose {
                 println!("⚠️  Formatting not implemented for {:?}", language);

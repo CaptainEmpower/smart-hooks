@@ -334,7 +334,7 @@ mod tests {
         .unwrap();
 
         match cli.command {
-            Commands::Test(TestCommands::Selective { files, verbose }) => {
+            Commands::Test(TestCommands::SelectiveUnit { files, verbose }) => {
                 assert_eq!(files, vec!["file1.rs", "file2.rs"]);
                 assert!(verbose);
             }
