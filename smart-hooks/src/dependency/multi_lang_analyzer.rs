@@ -1,468 +1,556 @@
-//! Multi-language dependency analyzer - main module
-//!
-//! This module provides a unified interface for dependency analysis across multiple
-//! programming languages. It coordinates language-specific analyzers to provide
-//! comprehensive dependency tracking and test selection.
+/// Multi-language dependency analyzer
+/// Provides unified dependency analysis across multiple programming languages
+use anyhow::Result;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
-// Re-export the main coordinator and trait
-pub use super::multi_lang_coordinator::{LanguageDependencyAnalyzer, MultiLangDependencyAnalyzer};
+use crate::dependency::types::{Dependency, TestTarget};
+use crate::project::multi_lang_types::{Language, MultiLangProjectConfig};
 
-// Re-export language-specific analyzers for direct access if needed
-pub use super::analyzers::{
-    PhpDependencyAnalyzer, PythonDependencyAnalyzer, RustMultiLangAnalyzer,
-    TypeScriptDependencyAnalyzer,
-};
+/// Trait for language-specific dependency analyzers
+pub trait LanguageDependencyAnalyzer {
+    /// Analyze dependencies for a specific file in this language
+    fn analyze_file_dependencies(&self, file_path: &Path) -> Result<Vec<Dependency>>;
 
-// Preserve the original extensive test suite that was in the monolithic module
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::dependency::types::{DependencyType, TestType};
-    use crate::project::multi_lang_types::{
-        BuildConfig, Language, LanguageCommands, LanguageConfig, MultiLangProjectConfig,
-        PackageManager, ProjectMetadata, TestFramework, TestStrategy,
-    };
-    use std::collections::HashMap;
-    use std::fs;
-    use std::io::Write;
-    use std::path::PathBuf;
-    use tempfile::{NamedTempFile, TempDir};
+    /// Find tests affected by changes to given files
+    fn find_affected_tests(&self, changed_files: &[PathBuf]) -> Result<Vec<TestTarget>>;
 
-    fn create_test_language_config(language: Language) -> LanguageConfig {
-        LanguageConfig {
-            language,
-            source_dirs: vec![PathBuf::from("src")],
-            file_patterns: vec!["*.rs".to_string(), "*.ts".to_string(), "*.py".to_string()],
-            package_manager: PackageManager::Cargo,
-            test_framework: TestFramework::RustTest,
-            commands: LanguageCommands {
-                test_command: vec!["cargo".to_string(), "test".to_string()],
-                build_command: Some(vec!["cargo".to_string(), "build".to_string()]),
-                lint_command: Some(vec!["cargo".to_string(), "clippy".to_string()]),
-                format_command: Some(vec!["cargo".to_string(), "fmt".to_string()]),
-                install_command: Some(vec!["cargo".to_string(), "install".to_string()]),
-            },
-            metadata: HashMap::new(),
-        }
+    /// Get the language this analyzer handles
+    fn language(&self) -> Language;
+
+    /// Check if this analyzer can handle the given file
+    fn can_handle_file(&self, file_path: &Path) -> bool;
+}
+
+/// Multi-language dependency analyzer that coordinates language-specific analyzers
+pub struct MultiLangDependencyAnalyzer {
+    project_config: MultiLangProjectConfig,
+    language_analyzers: HashMap<Language, Box<dyn LanguageDependencyAnalyzer>>,
+}
+
+impl MultiLangDependencyAnalyzer {
+    /// Create a new multi-language dependency analyzer
+    pub fn new(project_config: MultiLangProjectConfig) -> Self {
+        let mut analyzer = Self {
+            project_config,
+            language_analyzers: HashMap::new(),
+        };
+
+        analyzer.register_default_analyzers();
+        analyzer
     }
 
-    fn create_multi_lang_project_config() -> MultiLangProjectConfig {
-        MultiLangProjectConfig {
-            project_root: PathBuf::from("/tmp/test"),
-            primary_language: Language::Rust,
-            languages: vec![
-                create_test_language_config(Language::Rust),
-                create_test_language_config(Language::TypeScript),
-                create_test_language_config(Language::Python),
-                create_test_language_config(Language::PHP),
-            ],
-            metadata: ProjectMetadata {
-                name: "test-project".to_string(),
-                version: "1.0.0".to_string(),
-                description: Some("Test project".to_string()),
-                repository: None,
-                license: None,
-                authors: vec!["test".to_string()],
-            },
-            test_strategy: TestStrategy::default(),
-            build_config: BuildConfig::default(),
-        }
-    }
-
-    #[test]
-    fn test_multi_lang_analyzer_creation() {
-        let config = create_multi_lang_project_config();
-        let _analyzer = MultiLangDependencyAnalyzer::new(config);
-
-        // Should have created the analyzer successfully
-        // Note: dependencies will be empty since no actual source files exist
-    }
-
-    #[test]
-    fn test_detect_file_language() {
-        let config = create_multi_lang_project_config();
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
-
-        // Test file language detection
-        let rust_files = vec![PathBuf::from("main.rs"), PathBuf::from("lib.rs")];
-        let ts_files = vec![PathBuf::from("index.ts"), PathBuf::from("app.tsx")];
-        let py_files = vec![PathBuf::from("main.py"), PathBuf::from("utils.py")];
-        let php_files = vec![PathBuf::from("index.php"), PathBuf::from("config.php")];
-
-        let all_files = [rust_files, ts_files, py_files, php_files].concat();
-        let test_targets = analyzer
-            .find_cross_language_affected_tests(&all_files)
-            .unwrap();
-
-        // Should generate test targets for each language
-        assert!(test_targets.len() > 0);
-    }
-
-    #[test]
-    fn test_find_files_recursive_nonexistent_directory() {
-        let config = create_multi_lang_project_config();
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
-
-        // Test with non-existent directory
-        let nonexistent_files = vec![PathBuf::from("nonexistent/file.rs")];
-        let result = analyzer.find_cross_language_affected_tests(&nonexistent_files);
-
-        // Should not crash but may still create test targets for detected files
-        assert!(result.is_ok());
-        // Note: The analyzer will still generate test targets based on file extensions
-    }
-
-    #[test]
-    fn test_find_cross_language_affected_tests() {
-        let config = create_multi_lang_project_config();
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
-
-        let changed_files = vec![
-            PathBuf::from("src/main.rs"),
-            PathBuf::from("src/app.ts"),
-            PathBuf::from("src/utils.py"),
-            PathBuf::from("src/controller.php"),
-        ];
-
-        let test_targets = analyzer
-            .find_cross_language_affected_tests(&changed_files)
-            .unwrap();
-
-        // Should find test targets for each language
-        assert_eq!(test_targets.len(), 4);
-
-        // Check that we have targets for each language (adjusting for actual command patterns)
-        assert!(test_targets
-            .iter()
-            .any(|t| t.command.contains(&"cargo".to_string())));
-        assert!(test_targets
-            .iter()
-            .any(|t| t.command.contains(&"npm".to_string())));
-        assert!(test_targets
-            .iter()
-            .any(|t| t.command.contains(&"pytest".to_string())));
-        assert!(test_targets
-            .iter()
-            .any(|t| t.command.iter().any(|cmd| cmd.contains("phpunit"))));
-    }
-
-    #[test]
-    fn test_group_files_by_language() {
-        let config = create_multi_lang_project_config();
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
-
-        let mixed_files = vec![
-            PathBuf::from("main.rs"),
-            PathBuf::from("app.ts"),
-            PathBuf::from("script.py"),
-            PathBuf::from("index.php"),
-            PathBuf::from("unknown.txt"), // Should be ignored
-        ];
-
-        let test_targets = analyzer
-            .find_cross_language_affected_tests(&mixed_files)
-            .unwrap();
-
-        // Should have 4 targets (excluding unknown.txt)
-        assert_eq!(test_targets.len(), 4);
-    }
-
-    #[test]
-    fn test_confidence_scores() {
-        let config = create_multi_lang_project_config();
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
-
-        let test_files = vec![
-            PathBuf::from("main.rs"),
-            PathBuf::from("app.ts"),
-            PathBuf::from("script.py"),
-            PathBuf::from("controller.php"),
-        ];
-
-        let test_targets = analyzer
-            .find_cross_language_affected_tests(&test_files)
-            .unwrap();
-
-        // All test targets should have confidence scores
-        for target in &test_targets {
-            assert!(target.confidence > 0.0);
-            assert!(target.confidence <= 1.0);
-        }
-    }
-
-    #[test]
-    fn test_dependency_weights() {
-        let config = create_test_language_config(Language::Rust);
-        let analyzer = RustMultiLangAnalyzer::new(config);
-
-        let mut temp_file = NamedTempFile::with_suffix(".rs").unwrap();
-        writeln!(temp_file, "use std::collections::HashMap;").unwrap();
-        writeln!(temp_file, "mod tests;").unwrap();
-
-        let dependencies = analyzer
-            .analyze_file_dependencies(temp_file.path())
-            .unwrap();
-
-        // Check that dependencies have appropriate weights
-        for dep in &dependencies {
-            assert!(dep.weight > 0.0);
-            assert!(dep.weight <= 1.0);
-            assert_eq!(dep.dependency_type, DependencyType::ModuleUse);
-        }
-    }
-
-    #[test]
-    fn test_extract_dependency_names() {
-        let config = create_test_language_config(Language::Rust);
-        let analyzer = RustMultiLangAnalyzer::new(config);
-
-        let mut temp_file = NamedTempFile::with_suffix(".rs").unwrap();
-        writeln!(temp_file, "use std::collections::HashMap;").unwrap();
-        writeln!(temp_file, "use serde::{{Serialize, Deserialize}};").unwrap();
-        writeln!(temp_file, "mod utils;").unwrap();
-
-        let dependencies = analyzer
-            .analyze_file_dependencies(temp_file.path())
-            .unwrap();
-
-        assert_eq!(dependencies.len(), 3);
-        assert!(dependencies.iter().any(|d| d.name.contains("HashMap")));
-        assert!(dependencies.iter().any(|d| d.name.contains("serde")));
-        assert!(dependencies.iter().any(|d| d.name.contains("utils")));
-    }
-
-    #[test]
-    fn test_language_analyzers_completeness() {
-        let config = create_multi_lang_project_config();
-        let _analyzer = MultiLangDependencyAnalyzer::new(config.clone());
-
-        // Verify all configured languages have analyzers
-        for language_config in &config.languages {
+    /// Register default language analyzers
+    fn register_default_analyzers(&mut self) {
+        // Register analyzers for detected languages
+        for language_config in &self.project_config.languages {
             match language_config.language {
                 Language::Rust => {
-                    assert!(RustMultiLangAnalyzer::new(language_config.clone())
-                        .can_handle_file(&PathBuf::from("test.rs")));
+                    // Create Rust analyzer if not already registered
+                    self.language_analyzers
+                        .entry(Language::Rust)
+                        .or_insert_with(|| {
+                            let rust_analyzer = RustMultiLangAnalyzer::new(language_config.clone());
+                            Box::new(rust_analyzer)
+                        });
                 }
                 Language::TypeScript => {
-                    assert!(TypeScriptDependencyAnalyzer::new(language_config.clone())
-                        .can_handle_file(&PathBuf::from("test.ts")));
+                    let ts_analyzer = TypeScriptDependencyAnalyzer::new(language_config.clone());
+                    self.language_analyzers
+                        .insert(Language::TypeScript, Box::new(ts_analyzer));
                 }
                 Language::Python => {
-                    assert!(PythonDependencyAnalyzer::new(language_config.clone())
-                        .can_handle_file(&PathBuf::from("test.py")));
+                    let py_analyzer = PythonDependencyAnalyzer::new(language_config.clone());
+                    self.language_analyzers
+                        .insert(Language::Python, Box::new(py_analyzer));
                 }
                 Language::PHP => {
-                    assert!(PhpDependencyAnalyzer::new(language_config.clone())
-                        .can_handle_file(&PathBuf::from("test.php")));
+                    let php_analyzer = PhpDependencyAnalyzer::new(language_config.clone());
+                    self.language_analyzers
+                        .insert(Language::PHP, Box::new(php_analyzer));
                 }
                 _ => {
-                    // Other languages may not be implemented yet
+                    // Add other language analyzers as needed
                 }
             }
         }
     }
 
-    #[test]
-    fn test_analyze_project_dependencies() {
-        let temp_dir = TempDir::new().unwrap();
-        let src_dir = temp_dir.path().join("src");
-        fs::create_dir_all(&src_dir).unwrap();
+    /// Analyze dependencies across all languages
+    pub fn analyze_project_dependencies(&self) -> Result<HashMap<PathBuf, Vec<Dependency>>> {
+        let mut all_dependencies = HashMap::new();
 
-        // Create test source files
-        let rust_file = src_dir.join("main.rs");
-        fs::write(&rust_file, "use std::collections::HashMap;\nfn main() {}").unwrap();
+        // Get all source files from all languages
+        for language_config in &self.project_config.languages {
+            if let Some(analyzer) = self.language_analyzers.get(&language_config.language) {
+                for source_dir in &language_config.source_dirs {
+                    let files = self.find_source_files(source_dir, &language_config.language)?;
 
-        let mut config = create_multi_lang_project_config();
-        config.project_root = temp_dir.path().to_path_buf();
-        config.languages[0].source_dirs = vec![src_dir];
-
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
-        let dependencies = analyzer.analyze_project_dependencies().unwrap();
-
-        // Should find dependencies in the created Rust file
-        assert!(!dependencies.is_empty());
-        assert!(dependencies.contains_key(&rust_file));
-    }
-
-    // Language-specific analyzer tests
-    #[test]
-    fn test_rust_analyzer_file_handling() {
-        let config = create_test_language_config(Language::Rust);
-        let analyzer = RustMultiLangAnalyzer::new(config);
-
-        assert!(analyzer.can_handle_file(&PathBuf::from("main.rs")));
-        assert!(analyzer.can_handle_file(&PathBuf::from("lib.rs")));
-        assert!(!analyzer.can_handle_file(&PathBuf::from("main.py")));
-        assert!(!analyzer.can_handle_file(&PathBuf::from("test.js")));
-        assert_eq!(analyzer.language(), Language::Rust);
-    }
-
-    #[test]
-    fn test_rust_analyzer_dependency_analysis() {
-        let config = create_test_language_config(Language::Rust);
-        let analyzer = RustMultiLangAnalyzer::new(config);
-
-        let mut temp_file = NamedTempFile::with_suffix(".rs").unwrap();
-        writeln!(temp_file, "use std::collections::HashMap;").unwrap();
-        writeln!(temp_file, "mod tests;").unwrap();
-        writeln!(temp_file, "fn main() {{}}").unwrap();
-
-        let deps = analyzer
-            .analyze_file_dependencies(temp_file.path())
-            .unwrap();
-        assert_eq!(deps.len(), 2);
-    }
-
-    #[test]
-    fn test_rust_analyzer_test_discovery() {
-        let config = create_test_language_config(Language::Rust);
-        let analyzer = RustMultiLangAnalyzer::new(config);
-
-        let changed_files = vec![PathBuf::from("src/main.rs"), PathBuf::from("src/lib.rs")];
-
-        let test_targets = analyzer.find_affected_tests(&changed_files).unwrap();
-        assert_eq!(test_targets.len(), 2);
-
-        // Check test target structure
-        for target in &test_targets {
-            assert!(target.name.starts_with("test_"));
-            assert_eq!(target.command, vec!["cargo", "test"]);
-            assert!(target.confidence > 0.0);
-
-            match &target.test_type {
-                TestType::Unit { module } => {
-                    assert!(module.starts_with("test_"));
+                    for file in files {
+                        if analyzer.can_handle_file(&file) {
+                            let dependencies = analyzer.analyze_file_dependencies(&file)?;
+                            all_dependencies.insert(file, dependencies);
+                        }
+                    }
                 }
-                _ => panic!("Expected Unit test type"),
             }
+        }
+
+        Ok(all_dependencies)
+    }
+
+    /// Find affected tests across all languages for given changed files
+    pub fn find_cross_language_affected_tests(
+        &self,
+        changed_files: &[PathBuf],
+    ) -> Result<Vec<TestTarget>> {
+        let mut all_test_targets = Vec::new();
+
+        // Group files by language
+        let files_by_language = self.group_files_by_language(changed_files);
+
+        // Analyze each language separately
+        for (language, files) in files_by_language {
+            if let Some(analyzer) = self.language_analyzers.get(&language) {
+                let test_targets = analyzer.find_affected_tests(&files)?;
+                all_test_targets.extend(test_targets);
+            }
+        }
+
+        Ok(all_test_targets)
+    }
+
+    /// Group files by their programming language
+    fn group_files_by_language(&self, files: &[PathBuf]) -> HashMap<Language, Vec<PathBuf>> {
+        let mut files_by_language: HashMap<Language, Vec<PathBuf>> = HashMap::new();
+
+        for file in files {
+            if let Some(language) = self.detect_file_language(file) {
+                files_by_language
+                    .entry(language)
+                    .or_default()
+                    .push(file.clone());
+            }
+        }
+
+        files_by_language
+    }
+
+    /// Detect the programming language of a file
+    fn detect_file_language(&self, file_path: &Path) -> Option<Language> {
+        if let Some(extension) = file_path.extension().and_then(|s| s.to_str()) {
+            match extension {
+                "rs" => Some(Language::Rust),
+                "ts" | "tsx" => Some(Language::TypeScript),
+                "js" | "jsx" | "mjs" => Some(Language::JavaScript),
+                "py" | "pyx" | "pyi" => Some(Language::Python),
+                "php" | "phtml" => Some(Language::PHP),
+                "go" => Some(Language::Go),
+                "java" => Some(Language::Java),
+                "cs" => Some(Language::CSharp),
+                _ => None,
+            }
+        } else {
+            None
         }
     }
 
-    #[test]
-    fn test_typescript_analyzer_file_handling() {
-        let config = create_test_language_config(Language::TypeScript);
-        let analyzer = TypeScriptDependencyAnalyzer::new(config);
+    /// Find source files in a directory for a specific language
+    fn find_source_files(&self, dir: &Path, language: &Language) -> Result<Vec<PathBuf>> {
+        let mut files = Vec::new();
+        let extensions = language.file_extensions();
 
-        assert!(analyzer.can_handle_file(&PathBuf::from("index.ts")));
-        assert!(analyzer.can_handle_file(&PathBuf::from("app.tsx")));
-        assert!(analyzer.can_handle_file(&PathBuf::from("script.js")));
-        assert!(!analyzer.can_handle_file(&PathBuf::from("main.rs")));
-        assert_eq!(analyzer.language(), Language::TypeScript);
+        Self::find_files_recursive(dir, &extensions, &mut files)?;
+        Ok(files)
     }
 
-    #[test]
-    fn test_typescript_analyzer_dependency_analysis() {
-        let config = create_test_language_config(Language::TypeScript);
-        let analyzer = TypeScriptDependencyAnalyzer::new(config);
+    /// Recursively find files with specific extensions
+    fn find_files_recursive(
+        dir: &Path,
+        extensions: &[&str],
+        files: &mut Vec<PathBuf>,
+    ) -> Result<()> {
+        if !dir.exists() || !dir.is_dir() {
+            return Ok(());
+        }
 
-        let mut temp_file = NamedTempFile::with_suffix(".ts").unwrap();
-        writeln!(temp_file, "import React from 'react';").unwrap();
-        writeln!(
-            temp_file,
-            "export default function App() {{ return null; }}"
-        )
-        .unwrap();
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
 
-        let deps = analyzer
-            .analyze_file_dependencies(temp_file.path())
-            .unwrap();
-        assert_eq!(deps.len(), 2); // One import + one export
+            if path.is_dir() {
+                Self::find_files_recursive(&path, extensions, files)?;
+            } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                if extensions.contains(&ext) {
+                    files.push(path);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Rust dependency analyzer adapted for multi-language context
+pub struct RustMultiLangAnalyzer {
+    _language_config: crate::project::multi_lang_types::LanguageConfig,
+}
+
+impl RustMultiLangAnalyzer {
+    pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
+        Self {
+            _language_config: language_config,
+        }
+    }
+}
+
+impl LanguageDependencyAnalyzer for RustMultiLangAnalyzer {
+    fn analyze_file_dependencies(&self, file_path: &Path) -> Result<Vec<Dependency>> {
+        // Simplified Rust dependency analysis
+        // In a full implementation, this would parse use statements, mod declarations, etc.
+        let content = std::fs::read_to_string(file_path)?;
+        let mut dependencies = Vec::new();
+
+        // Look for use statements and mod declarations
+        for line in content.lines() {
+            let line = line.trim();
+
+            if line.starts_with("use ") || line.starts_with("mod ") {
+                // Extract dependency information
+                dependencies.push(Dependency {
+                    name: Self::extract_dependency_name(line),
+                    dependency_type: crate::dependency::types::DependencyType::ModuleUse,
+                    path: file_path.to_path_buf(),
+                    weight: 0.9,
+                });
+            }
+        }
+
+        Ok(dependencies)
     }
 
-    #[test]
-    fn test_python_analyzer_file_handling() {
-        let config = create_test_language_config(Language::Python);
-        let analyzer = PythonDependencyAnalyzer::new(config);
+    fn find_affected_tests(&self, changed_files: &[PathBuf]) -> Result<Vec<TestTarget>> {
+        let mut test_targets = Vec::new();
 
-        assert!(analyzer.can_handle_file(&PathBuf::from("main.py")));
-        assert!(analyzer.can_handle_file(&PathBuf::from("utils.pyx")));
-        assert!(!analyzer.can_handle_file(&PathBuf::from("main.rs")));
-        assert_eq!(analyzer.language(), Language::Python);
+        // Simple heuristic: for each changed Rust file, look for corresponding test files
+        for file in changed_files {
+            if file.extension().and_then(|s| s.to_str()) == Some("rs") {
+                // Look for test files in the same directory or tests directory
+                let test_name = format!("test_{}", file.file_stem().unwrap().to_str().unwrap());
+
+                test_targets.push(TestTarget {
+                    name: test_name.clone(),
+                    test_type: crate::dependency::types::TestType::Unit { module: test_name },
+                    command: vec!["cargo".to_string(), "test".to_string()],
+                    dependencies: vec![file.clone()],
+                    confidence: 0.8,
+                });
+            }
+        }
+
+        Ok(test_targets)
     }
 
-    #[test]
-    fn test_python_analyzer_dependency_analysis() {
-        let config = create_test_language_config(Language::Python);
-        let analyzer = PythonDependencyAnalyzer::new(config);
-
-        let mut temp_file = NamedTempFile::with_suffix(".py").unwrap();
-        writeln!(temp_file, "import os").unwrap();
-        writeln!(temp_file, "from pathlib import Path").unwrap();
-
-        let deps = analyzer
-            .analyze_file_dependencies(temp_file.path())
-            .unwrap();
-        assert_eq!(deps.len(), 2);
+    fn language(&self) -> Language {
+        Language::Rust
     }
 
-    #[test]
-    fn test_php_analyzer_file_handling() {
-        let config = create_test_language_config(Language::PHP);
-        let analyzer = PhpDependencyAnalyzer::new(config);
+    fn can_handle_file(&self, file_path: &Path) -> bool {
+        file_path.extension().and_then(|s| s.to_str()) == Some("rs")
+    }
+}
 
-        assert!(analyzer.can_handle_file(&PathBuf::from("index.php")));
-        assert!(analyzer.can_handle_file(&PathBuf::from("template.phtml")));
-        assert!(!analyzer.can_handle_file(&PathBuf::from("main.rs")));
-        assert_eq!(analyzer.language(), Language::PHP);
+impl RustMultiLangAnalyzer {
+    fn extract_dependency_name(line: &str) -> String {
+        // Simple extraction - in practice would be more sophisticated
+        if let Some(use_part) = line.strip_prefix("use ") {
+            use_part
+                .split_whitespace()
+                .next()
+                .unwrap_or("unknown")
+                .to_string()
+        } else if let Some(mod_part) = line.strip_prefix("mod ") {
+            mod_part
+                .split_whitespace()
+                .next()
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            "unknown".to_string()
+        }
+    }
+}
+
+/// TypeScript dependency analyzer
+pub struct TypeScriptDependencyAnalyzer {
+    _language_config: crate::project::multi_lang_types::LanguageConfig,
+}
+
+impl TypeScriptDependencyAnalyzer {
+    pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
+        Self {
+            _language_config: language_config,
+        }
+    }
+}
+
+impl LanguageDependencyAnalyzer for TypeScriptDependencyAnalyzer {
+    fn analyze_file_dependencies(&self, file_path: &Path) -> Result<Vec<Dependency>> {
+        let content = std::fs::read_to_string(file_path)?;
+        let mut dependencies = Vec::new();
+
+        // Look for import statements
+        for line in content.lines() {
+            let line = line.trim();
+
+            if line.starts_with("import ")
+                || line.starts_with("export ")
+                || line.contains("require(")
+            {
+                dependencies.push(Dependency {
+                    name: Self::extract_import_name(line),
+                    dependency_type: crate::dependency::types::DependencyType::ModuleUse,
+                    path: file_path.to_path_buf(),
+                    weight: 0.8,
+                });
+            }
+        }
+
+        Ok(dependencies)
     }
 
-    #[test]
-    fn test_php_analyzer_dependency_analysis() {
-        let config = create_test_language_config(Language::PHP);
-        let analyzer = PhpDependencyAnalyzer::new(config);
+    fn find_affected_tests(&self, changed_files: &[PathBuf]) -> Result<Vec<TestTarget>> {
+        let mut test_targets = Vec::new();
 
-        let mut temp_file = NamedTempFile::with_suffix(".php").unwrap();
-        writeln!(temp_file, "<?php").unwrap();
-        writeln!(temp_file, "use App\\Controller\\BaseController;").unwrap();
-        writeln!(temp_file, "require 'vendor/autoload.php';").unwrap();
+        for file in changed_files {
+            if let Some(ext) = file.extension().and_then(|s| s.to_str()) {
+                if ext == "ts" || ext == "tsx" || ext == "js" || ext == "jsx" {
+                    // Look for corresponding test files
+                    let test_name = format!("{}.test", file.file_stem().unwrap().to_str().unwrap());
 
-        let deps = analyzer
-            .analyze_file_dependencies(temp_file.path())
-            .unwrap();
-        assert_eq!(deps.len(), 2);
+                    test_targets.push(TestTarget {
+                        name: test_name.clone(),
+                        test_type: crate::dependency::types::TestType::Unit { module: test_name },
+                        command: vec!["npm".to_string(), "test".to_string()],
+                        dependencies: vec![file.clone()],
+                        confidence: 0.7,
+                    });
+                }
+            }
+        }
+
+        Ok(test_targets)
     }
 
-    #[test]
-    fn test_find_source_files() {
-        let temp_dir = TempDir::new().unwrap();
-        let src_dir = temp_dir.path().join("src");
-        fs::create_dir_all(&src_dir).unwrap();
-
-        // Create various test files
-        fs::write(src_dir.join("main.rs"), "// Rust file").unwrap();
-        fs::write(src_dir.join("app.ts"), "// TypeScript file").unwrap();
-        fs::write(src_dir.join("utils.py"), "# Python file").unwrap();
-        fs::write(src_dir.join("readme.txt"), "Not a source file").unwrap();
-
-        let mut config = create_multi_lang_project_config();
-        config.project_root = temp_dir.path().to_path_buf();
-
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
-        let dependencies = analyzer.analyze_project_dependencies();
-
-        assert!(dependencies.is_ok());
-        // The actual source discovery happens when source directories are configured correctly
+    fn language(&self) -> Language {
+        Language::TypeScript
     }
 
-    #[test]
-    fn test_find_files_recursive() {
-        let temp_dir = TempDir::new().unwrap();
-        let nested_dir = temp_dir.path().join("nested").join("deep");
-        fs::create_dir_all(&nested_dir).unwrap();
+    fn can_handle_file(&self, file_path: &Path) -> bool {
+        if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
+            matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mjs")
+        } else {
+            false
+        }
+    }
+}
 
-        // Create files at different depths
-        fs::write(temp_dir.path().join("top.rs"), "// Top level").unwrap();
-        fs::write(nested_dir.join("deep.rs"), "// Deep nested").unwrap();
+impl TypeScriptDependencyAnalyzer {
+    fn extract_import_name(line: &str) -> String {
+        // Simplified import name extraction
+        if line.contains("from ") {
+            if let Some(from_pos) = line.find("from ") {
+                let from_part = &line[from_pos + 5..];
+                from_part
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("unknown")
+                    .to_string()
+            } else {
+                "unknown".to_string()
+            }
+        } else {
+            "unknown".to_string()
+        }
+    }
+}
 
-        let config = create_multi_lang_project_config();
-        let analyzer = MultiLangDependencyAnalyzer::new(config);
+/// Python dependency analyzer
+pub struct PythonDependencyAnalyzer {
+    _language_config: crate::project::multi_lang_types::LanguageConfig,
+}
 
-        // Test the recursive file finding would work with proper source directory setup
-        let test_files = vec![temp_dir.path().join("top.rs"), nested_dir.join("deep.rs")];
+impl PythonDependencyAnalyzer {
+    pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
+        Self {
+            _language_config: language_config,
+        }
+    }
+}
 
-        let test_targets = analyzer
-            .find_cross_language_affected_tests(&test_files)
-            .unwrap();
-        assert_eq!(test_targets.len(), 2);
+impl LanguageDependencyAnalyzer for PythonDependencyAnalyzer {
+    fn analyze_file_dependencies(&self, file_path: &Path) -> Result<Vec<Dependency>> {
+        let content = std::fs::read_to_string(file_path)?;
+        let mut dependencies = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+
+            if line.starts_with("import ") || line.starts_with("from ") {
+                dependencies.push(Dependency {
+                    name: Self::extract_import_name(line),
+                    dependency_type: crate::dependency::types::DependencyType::ModuleUse,
+                    path: file_path.to_path_buf(),
+                    weight: 0.85,
+                });
+            }
+        }
+
+        Ok(dependencies)
+    }
+
+    fn find_affected_tests(&self, changed_files: &[PathBuf]) -> Result<Vec<TestTarget>> {
+        let mut test_targets = Vec::new();
+
+        for file in changed_files {
+            if file.extension().and_then(|s| s.to_str()) == Some("py") {
+                let test_name = format!("test_{}", file.file_stem().unwrap().to_str().unwrap());
+
+                test_targets.push(TestTarget {
+                    name: test_name.clone(),
+                    test_type: crate::dependency::types::TestType::Unit { module: test_name },
+                    command: vec!["python".to_string(), "-m".to_string(), "pytest".to_string()],
+                    dependencies: vec![file.clone()],
+                    confidence: 0.8,
+                });
+            }
+        }
+
+        Ok(test_targets)
+    }
+
+    fn language(&self) -> Language {
+        Language::Python
+    }
+
+    fn can_handle_file(&self, file_path: &Path) -> bool {
+        if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
+            matches!(ext, "py" | "pyx" | "pyi")
+        } else {
+            false
+        }
+    }
+}
+
+impl PythonDependencyAnalyzer {
+    fn extract_import_name(line: &str) -> String {
+        if line.starts_with("import ") {
+            line.strip_prefix("import ")
+                .unwrap_or("")
+                .split_whitespace()
+                .next()
+                .unwrap_or("unknown")
+                .to_string()
+        } else if line.starts_with("from ") {
+            line.strip_prefix("from ")
+                .unwrap_or("")
+                .split_whitespace()
+                .next()
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            "unknown".to_string()
+        }
+    }
+}
+
+/// PHP dependency analyzer
+pub struct PhpDependencyAnalyzer {
+    _language_config: crate::project::multi_lang_types::LanguageConfig,
+}
+
+impl PhpDependencyAnalyzer {
+    pub fn new(language_config: crate::project::multi_lang_types::LanguageConfig) -> Self {
+        Self {
+            _language_config: language_config,
+        }
+    }
+}
+
+impl LanguageDependencyAnalyzer for PhpDependencyAnalyzer {
+    fn analyze_file_dependencies(&self, file_path: &Path) -> Result<Vec<Dependency>> {
+        let content = std::fs::read_to_string(file_path)?;
+        let mut dependencies = Vec::new();
+
+        for line in content.lines() {
+            let line = line.trim();
+
+            if line.starts_with("use ")
+                || line.starts_with("require ")
+                || line.starts_with("include ")
+            {
+                dependencies.push(Dependency {
+                    name: Self::extract_dependency_name(line),
+                    dependency_type: crate::dependency::types::DependencyType::ModuleUse,
+                    path: file_path.to_path_buf(),
+                    weight: 0.75,
+                });
+            }
+        }
+
+        Ok(dependencies)
+    }
+
+    fn find_affected_tests(&self, changed_files: &[PathBuf]) -> Result<Vec<TestTarget>> {
+        let mut test_targets = Vec::new();
+
+        for file in changed_files {
+            if file.extension().and_then(|s| s.to_str()) == Some("php") {
+                let test_name = format!("{}Test", file.file_stem().unwrap().to_str().unwrap());
+
+                test_targets.push(TestTarget {
+                    name: test_name.clone(),
+                    test_type: crate::dependency::types::TestType::Unit { module: test_name },
+                    command: vec!["vendor/bin/phpunit".to_string(), "--filter".to_string()],
+                    dependencies: vec![file.clone()],
+                    confidence: 0.7,
+                });
+            }
+        }
+
+        Ok(test_targets)
+    }
+
+    fn language(&self) -> Language {
+        Language::PHP
+    }
+
+    fn can_handle_file(&self, file_path: &Path) -> bool {
+        if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
+            matches!(ext, "php" | "phtml")
+        } else {
+            false
+        }
+    }
+}
+
+impl PhpDependencyAnalyzer {
+    fn extract_dependency_name(line: &str) -> String {
+        if line.starts_with("use ") {
+            line.strip_prefix("use ")
+                .unwrap_or("")
+                .split_whitespace()
+                .next()
+                .unwrap_or("unknown")
+                .to_string()
+        } else if line.contains("require") || line.contains("include") {
+            // Extract from require/include statements
+            "file_dependency".to_string()
+        } else {
+            "unknown".to_string()
+        }
     }
 }

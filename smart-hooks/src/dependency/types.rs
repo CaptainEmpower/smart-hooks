@@ -14,7 +14,7 @@ pub struct Dependency {
     pub weight: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DependencyType {
     /// Direct module dependency (use statement)
     ModuleUse,
