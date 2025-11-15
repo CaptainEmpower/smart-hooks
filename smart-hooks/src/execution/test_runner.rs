@@ -36,7 +36,7 @@ pub fn run_integration_tests() -> Result<bool> {
 /// Run BDD tests
 pub fn run_bdd_tests() -> Result<bool> {
     run_cargo_command(
-        &["test", "--test", "cucumber_tests"],
+        &["test", "--test", "cucumber_tests", "--quiet"],
         Some(Path::new("crates/git-mvh")),
     )
 }

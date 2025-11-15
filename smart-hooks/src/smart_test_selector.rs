@@ -162,7 +162,7 @@ fn execute_test_plan(plan: &TestPlan) -> Result<()> {
     if plan.bdd_tests {
         println!("🎭 Running BDD tests for behavioral changes...");
         run_cargo_command(
-            &["test", "--test", "cucumber_tests"],
+            &["test", "--test", "cucumber_tests", "--quiet"],
             Some(Path::new("crates/git-mvh")),
         )
         .context("BDD tests failed")?;
