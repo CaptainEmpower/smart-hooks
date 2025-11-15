@@ -1,377 +1,412 @@
-# 🚀 Smart-Hooks: Intelligent Pre-commit Hooks
+# smart-hooks
 
-> **Next-generation pre-commit hooks with dependency analysis, multi-language support, and intelligent test selection**
-
-Smart-Hooks revolutionizes the pre-commit workflow by providing intelligent analysis instead of simple pattern matching. It understands your codebase's dependency graph and runs only the tests and checks that matter for your changes.
-
-[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
+[![Tests](https://img.shields.io/badge/tests-44%20passing-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Pre-commit](https://img.shields.io/badge/pre--commit-compatible-brightgreen.svg)](https://pre-commit.com/)
+
+**Intelligent git hooks that understand your code changes and automatically select the right tests to run.**
+
+smart-hooks provides a sophisticated, AI-powered system for automatically selecting and running the right tests based on file changes. It uses structural pattern analysis and optional Claude AI integration to understand code changes and intelligently target relevant test suites.
 
 ## ✨ Features
 
-### 🧠 **Intelligent Analysis**
-- **Dependency-aware test selection** - Only run tests affected by your changes
-- **Cross-language impact analysis** - Understand how changes ripple across languages
-- **AST-based code parsing** - Deep understanding beyond regex patterns
-- **Project complexity assessment** - Get insights into your codebase health
+### 🎯 **Intelligent Test Selection**
+- **Smart dependency analysis** - Only runs tests affected by your changes
+- **Configurable pattern matching** - Customize test selection rules for your project
+- **Three-tier analysis**: Configuration → Static Analysis → Claude AI
 
-### 🌍 **Multi-Language Support**
-- **Unified workflow** for Rust, TypeScript, JavaScript, Python, PHP, Go, Java, C#
-- **Auto-detection** of project languages and build systems
-- **Language-specific tooling** with intelligent defaults
-- **Cross-language dependency tracking**
+### 🥒 **Cucumber Integration**
+- **Semantic tag mapping** - File patterns → cucumber tags (`@business-logic`, `@api`, `@workflow`)
+- **Automatic command generation** - Ready-to-run cucumber commands
+- **Targeted test execution** - Run only relevant BDD scenarios
 
-### ⚡ **Performance Optimized**
-- **50-80% faster** than traditional pre-commit hooks
-- **Selective execution** based on actual impact
-- **Parallel processing** where safe
-- **Minimal false positives** in test selection
+### 🏗️ **Domain-Agnostic Architecture**
+- **Structural pattern recognition** - Based on software architecture, not business domain
+- **Fully configurable** - No hard-coded business logic
+- **Reusable across projects** - Works for any Rust project structure
 
-### 🔧 **Easy Integration**
-- **Drop-in replacement** for existing pre-commit setups
-- **Zero configuration** for standard projects
-- **Flexible customization** for complex workflows
-- **Comprehensive reporting** in JSON or text format
+### 🤖 **Claude AI Integration** (Optional)
+- **Semantic code analysis** - Understands code intent, not just syntax
+- **Intelligent feature selection** - Maps changes to behavioral requirements
+- **Graceful fallback** - Works with or without Claude CLI
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- Rust 1.70+ (for building from source)
-- Git repository
-- Pre-commit framework (optional but recommended)
-
 ### Installation
 
-#### Option 1: Using Pre-commit (Recommended)
+Add to your `Cargo.toml`:
 
-Add to your `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: https://github.com/your-org/smart-hooks
-    rev: v0.2.0
-    hooks:
-      - id: smart-test-selector
-      - id: smart-hooks-format
-      - id: dependency-impact-analysis
-```
-
-#### Option 2: Direct Installation
-
-```bash
-# Clone and build
-git clone https://github.com/your-org/smart-hooks
-cd smart-hooks
-cargo build --release
-
-# Add to PATH
-export PATH=$PATH:/path/to/smart-hooks/target/release
+```toml
+[dev-dependencies]
+smart-hooks = "0.2"
 ```
 
 ### Basic Usage
 
+1. **Install pre-commit hooks:**
 ```bash
-# Run intelligent test selection
-smart-hooks test selective src/core.rs src/utils.rs
-
-# Format code with language detection
-smart-hooks format auto --verbose
-
-# Analyze dependency impact
-smart-hooks analyze dependencies --graph
-
-# Get project summary
-smart-hooks summary --format json
+pip install pre-commit
+pre-commit install
 ```
 
-## 📋 Available Hooks
+2. **Configure `.pre-commit-config.yaml`:**
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: smart-test-selector
+        name: Smart Test Selection
+        entry: cargo run --bin smart-test-selector --manifest-path crates/smart-hooks/Cargo.toml --
+        language: system
+        files: '^src/.*\.rs$'
+        pass_filenames: true
+```
 
-### Core Hooks
+3. **Create configuration file** (`config.toml`):
+```toml
+enable_content_analysis = false
 
-| Hook ID | Description | Use Case |
-|---------|-------------|----------|
-| `smart-test-selector` | Intelligent test selection based on dependency analysis | Faster CI/CD pipelines |
-| `smart-hooks-format` | Multi-language code formatting with auto-detection | Code consistency |
-| `smart-hooks-lint` | Language-specific linting with smart tool selection | Code quality |
-| `dependency-impact-analysis` | Cross-language dependency impact assessment | Change risk evaluation |
+[bdd_structural_patterns]
+core_business_logic = ["/core/", "/service/", "/domain/"]
+application_logic = ["/apply/", "/strategy/", "/handler/"]
+error_handling = ["/error", "/validate", "/types"]
+api_interfaces = ["/api/", "/controller/", "/endpoint/"]
 
-### Specialized Hooks
+[bdd_pattern_tags]
+"/core/" = ["@business-logic", "@critical"]
+"/api/" = ["@api", "@external"]
+"/error" = ["@error-handling", "@robustness"]
+```
 
-| Hook ID | Description | Use Case |
-|---------|-------------|----------|
-| `conditional-compilation-check` | Rust conditional compilation validation | Build reliability |
-| `bdd-feature-selector` | Intelligent BDD/Cucumber feature selection | Behavior testing |
-| `smart-hooks-summary` | Comprehensive project analysis report | Project health monitoring |
+## 📖 Usage Examples
 
-## 🛠️ Configuration
+### Smart Test Selection
 
-### Basic Configuration
+```bash
+# Automatically select tests based on changed files
+cargo run --bin smart-test-selector -- src/core/processor.rs src/api/controller.rs
 
-Smart-Hooks works with zero configuration for standard projects. For custom setups:
+# Output:
+# 🔍 Running unit tests for: processor, controller
+# 🧪 Running integration tests for core changes
+# 🎭 BDD recommendation: cucumber --tags "@business-logic or @api"
+```
+
+### Claude AI BDD Selection
+
+```bash
+# Intelligent BDD feature selection with Claude AI
+cargo run --bin claude-bdd-selector --features claude-ai -- \
+    --dry-run \
+    --context "Payment processing system with fraud detection"
+
+# Output:
+# 🤖 Claude AI Analysis Results:
+# 📋 Recommended Features: payment_validation.feature, fraud_detection.feature
+# 🎯 Priority: high (confidence: 89%)
+# 🏷️ Tags: @business-logic @critical @payment
+```
+
+### Configuration-Based Analysis
+
+```rust
+use smart_hooks::{TestSelectorConfig, select_bdd_features_static_with_config};
+
+let config = TestSelectorConfig::from_file("project-config.toml")?;
+
+// Get cucumber tags for a file
+let tags = config.get_cucumber_tags_for_file("src/core/payment.rs");
+// Returns: ["@business-logic", "@critical"]
+
+// Get ready-to-run cucumber command
+let cmd = config.get_cucumber_command_for_file("src/api/users.rs");
+// Returns: "cucumber --tags '@api or @external'"
+```
+
+## 📁 Project Structure
+
+```
+crates/smart-hooks/
+├── src/
+│   ├── analysis/           # Core analysis modules
+│   │   ├── bdd_detector.rs       # Static BDD pattern detection
+│   │   ├── claude_bdd_detector.rs # Claude AI integration
+│   │   ├── bdd_feature_selector.rs # Intelligent feature selection
+│   │   ├── config.rs              # Configuration management
+│   │   ├── dependency_mapper.rs   # Test dependency analysis
+│   │   └── file_analyzer.rs       # File content analysis
+│   ├── execution/          # Test execution coordination
+│   │   ├── plan_executor.rs       # Test plan execution
+│   │   └── test_runner.rs         # Cargo command runner
+│   ├── utilities/          # Shared utilities
+│   │   ├── file_utils.rs          # File operations
+│   │   ├── impact_analyzer.rs     # Change impact assessment
+│   │   └── module_utils.rs        # Module name extraction
+│   ├── smart_test_selector.rs     # Main CLI binary
+│   └── claude_bdd_selector.rs     # Claude AI CLI binary
+├── example-config.toml     # Configuration template
+└── README.md              # This file
+```
+
+## ⚙️ Configuration
+
+### Structural Patterns
+
+Define architectural patterns that should trigger BDD tests:
+
+```toml
+[bdd_structural_patterns]
+# Core business logic
+core_business_logic = ["/core/", "/service/", "/domain/", "/business/"]
+
+# Application workflows
+application_logic = ["/apply/", "/strategy/", "/handler/", "/processor/"]
+
+# Error handling and validation
+error_handling = ["/error", "/validate", "/types", "/exception/"]
+
+# API interfaces
+api_interfaces = ["/api/", "/controller/", "/endpoint/", "/web/"]
+
+# Domain patterns (DDD, CQRS, etc.)
+behavioral_patterns = ["/command/", "/event/", "/aggregate/", "/saga/"]
+```
+
+### Cucumber Tag Mapping
+
+Map file patterns to semantic cucumber tags:
+
+```toml
+[bdd_pattern_tags]
+# Business logic
+"/core/" = ["@business-logic", "@critical"]
+"/service/" = ["@business-logic", "@integration"]
+"/domain/" = ["@business-logic", "@domain-rules"]
+
+# API layer
+"/api/" = ["@api", "@external"]
+"/controller/" = ["@api", "@web"]
+"/endpoint/" = ["@api", "@rest"]
+
+# Error handling
+"/error" = ["@error-handling", "@robustness"]
+"/validate" = ["@error-handling", "@validation"]
+```
+
+### Test Selection Rules
+
+Configure which files trigger which test types:
+
+```toml
+# Unit test patterns (file → module mapping)
+[unit_test_patterns]
+"processor.rs" = "processor"
+"validator.rs" = "validator"
+
+# Integration test patterns
+integration_test_patterns = ["/core/", "/types.rs", "/error.rs"]
+
+# BDD test patterns
+bdd_test_patterns = ["/apply/", "/strategy/", "/service/"]
+```
+
+## 🤖 Claude AI Integration
+
+### Setup
+
+1. **Install Claude CLI:**
+```bash
+# Follow Claude CLI installation instructions
+# https://docs.anthropic.com/claude/docs/claude-code
+```
+
+2. **Enable feature:**
+```bash
+cargo run --bin claude-bdd-selector --features claude-ai
+```
+
+3. **Usage:**
+```bash
+# Analyze staged changes
+git add src/core/payment_processor.rs
+cargo run --bin claude-bdd-selector --features claude-ai -- \
+    --context "E-commerce platform with payment processing"
+```
+
+### Benefits
+
+- **Semantic understanding** - Understands code intent beyond syntax
+- **Context-aware** - Considers project domain and business logic
+- **Intelligent recommendations** - Suggests specific test scenarios
+- **Confidence scoring** - Provides reliability metrics
+
+## 🧪 Testing
+
+The crate includes comprehensive test coverage:
+
+```bash
+# Run all tests
+cargo test --lib
+
+# Run with Claude AI features
+cargo test --lib --features claude-ai
+
+# Run specific test modules
+cargo test analysis::config
+cargo test analysis::bdd_detector
+```
+
+**Test Coverage:**
+- ✅ **44 unit tests** covering all core functionality
+- ✅ **Static analysis** pattern detection
+- ✅ **Configuration parsing** and validation
+- ✅ **Tag mapping** and command generation
+- ✅ **BDD feature selection** algorithms
+- ✅ **Error handling** and edge cases
+
+## 🏗️ Architecture
+
+smart-hooks follows **Single Responsibility Principle** with each module ≤300 LOC:
+
+### Analysis Layer
+- **Structural pattern detection** (domain-agnostic)
+- **Content analysis** (optional file reading)
+- **AI-powered semantic analysis** (Claude integration)
+- **Configuration management** (TOML-based)
+
+### Execution Layer
+- **Test plan creation** based on analysis
+- **Cargo command execution** with proper error handling
+- **Result coordination** and reporting
+
+### Utilities Layer
+- **File operations** with safety checks
+- **Impact analysis** for change assessment
+- **Module utilities** for Rust project navigation
+
+## 🔄 Integration Examples
+
+### With CI/CD
 
 ```yaml
-# .smart-hooks.yaml (optional)
-project:
-  name: my-project
-  languages: [rust, typescript, python]
-  
-test_strategy:
-  selection_mode: intelligent
-  cross_language_testing: true
-  
-analysis:
-  dependency_depth: 3
-  confidence_threshold: 0.7
+# GitHub Actions
+- name: Smart Test Selection
+  run: |
+    cargo run --bin smart-test-selector -- $(git diff --name-only HEAD~1)
+
+# GitLab CI
+script:
+  - cargo run --bin claude-bdd-selector --features claude-ai -- --dry-run
 ```
 
-### Advanced Configuration
+### With Pre-commit
 
 ```yaml
-# Language-specific overrides
-languages:
-  rust:
-    test_command: ["cargo", "nextest", "run"]
-    format_command: ["cargo", "fmt"]
-    lint_command: ["cargo", "clippy", "--", "-D", "warnings"]
-  
-  typescript:
-    test_command: ["npm", "test"]
-    format_command: ["npx", "prettier", "--write"]
-    lint_command: ["npx", "eslint", "--fix"]
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: intelligent-bdd
+        name: Intelligent BDD Selection
+        entry: cargo run --bin claude-bdd-selector --features claude-ai
+        files: '^src/.*\.rs$'
+        language: system
 ```
 
-## 📊 CLI Commands
-
-### Test Commands
+### With Custom Scripts
 
 ```bash
-# Selective test execution
-smart-hooks test selective [files...]
+#!/bin/bash
+# run-smart-tests.sh
 
-# Integration test runner (when needed)
-smart-hooks test integration --force
+CHANGED_FILES=$(git diff --cached --name-only --diff-filter=AM | grep "\.rs$")
 
-# Smart test selector with BDD integration
-smart-hooks test smart-selector --with-bdd [files...]
+if [[ -n "$CHANGED_FILES" ]]; then
+    echo "🔍 Analyzing changed files: $CHANGED_FILES"
+    cargo run --bin smart-test-selector -- $CHANGED_FILES
+fi
 ```
 
-### Code Quality Commands
+## 📚 API Reference
 
-```bash
-# Auto-format with language detection
-smart-hooks format auto [files...] --language rust --check
+### Core Types
 
-# Multi-language linting
-smart-hooks lint auto [files...] --fix --verbose
+```rust
+// Configuration
+pub struct TestSelectorConfig {
+    pub bdd_structural_patterns: Option<BddStructuralPatterns>,
+    pub bdd_pattern_tags: Option<HashMap<String, Vec<String>>>,
+    pub enable_content_analysis: bool,
+}
 
-# Conditional compilation check (Rust)
-smart-hooks check conditional-compilation --all-files
+// BDD Analysis
+pub struct BddFeatureSelection {
+    pub should_run_bdd: bool,
+    pub confidence: f32,
+    pub selected_features: Vec<SelectedFeature>,
+    pub suggested_test_focus: Vec<String>,
+}
+
+// Test Planning
+pub struct TestPlan {
+    pub unit_tests: Vec<String>,
+    pub integration_tests: bool,
+    pub bdd_tests: bool,
+}
 ```
 
-### Analysis Commands
+### Key Functions
 
-```bash
-# Dependency impact analysis
-smart-hooks analyze dependencies [files...] --graph --language rust
+```rust
+// Configuration-based analysis
+pub fn select_bdd_features_static_with_config(
+    staged_files: &[FileChange],
+    available_features: &[String],
+    config: &TestSelectorConfig,
+) -> Result<BddFeatureSelection>
 
-# Project summary with recommendations
-smart-hooks summary --format json --verbose
+// Claude AI analysis (requires "claude-ai" feature)
+pub async fn select_bdd_features_with_claude(
+    staged_files: &[FileChange],
+    available_features: &[String],
+    project_context: &str,
+) -> Result<BddFeatureSelection>
+
+// Test plan creation
+pub fn create_test_plan_with_config(
+    files: &[String],
+    config: &TestSelectorConfig,
+) -> Result<TestPlan>
 ```
-
-### BDD Commands
-
-```bash
-# AI-powered BDD feature selection
-smart-hooks bdd claude-selector --context "API changes" --dry-run
-```
-
-## 🎯 Use Cases
-
-### 1. **Large Monorepos**
-```bash
-# Only test affected modules instead of everything
-smart-hooks test selective src/backend/auth.rs
-# ✅ Runs: auth tests, integration tests, dependent modules
-# ❌ Skips: frontend tests, unrelated services
-```
-
-### 2. **Multi-Language Projects**
-```bash
-# Unified formatting across languages
-smart-hooks format auto src/api.ts src/core.rs src/utils.py
-# ✅ Applies: prettier for TS, cargo fmt for Rust, black for Python
-```
-
-### 3. **CI/CD Optimization**
-```bash
-# Pre-commit hook that runs only necessary checks
-smart-hooks test selective $PRE_COMMIT_FILES
-# Result: 50-80% faster CI pipeline execution
-```
-
-### 4. **Code Review Preparation**
-```bash
-# Comprehensive analysis before PR submission
-smart-hooks summary --verbose
-smart-hooks analyze dependencies --graph
-# Result: Complete impact assessment and recommendations
-```
-
-## 📈 Performance Benefits
-
-### Traditional Pre-commit
-```bash
-time pre-commit run --all-files
-# ~60 seconds for medium project
-# Runs all configured hooks regardless of changes
-```
-
-### Smart-Hooks
-```bash
-time smart-hooks test selective src/core.rs
-# ~15 seconds for targeted execution
-# Only runs affected tests based on dependency analysis
-
-# 4x faster for typical development workflow
-```
-
-### Real-World Results
-- **75% reduction** in CI execution time
-- **90% fewer** irrelevant test failures  
-- **60% faster** local development workflow
-- **Zero false positives** in dependency analysis
-
-## 🔧 Integration Examples
-
-### GitHub Actions
-
-```yaml
-name: Smart Pre-commit
-on: [push, pull_request]
-
-jobs:
-  smart-checks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup Smart-Hooks
-        run: |
-          cargo install smart-hooks
-      - name: Run Smart Analysis
-        run: |
-          smart-hooks test selective $(git diff --name-only HEAD~1)
-          smart-hooks analyze dependencies --verbose
-```
-
-### GitLab CI
-
-```yaml
-smart-hooks:
-  stage: test
-  script:
-    - smart-hooks summary --format json > analysis.json
-    - smart-hooks test selective $CI_MERGE_REQUEST_DIFF_FILES
-  artifacts:
-    reports:
-      junit: analysis.json
-```
-
-### Local Development
-
-```bash
-# Add to your shell profile
-alias test-changes='smart-hooks test selective $(git diff --name-only HEAD)'
-alias format-all='smart-hooks format auto --verbose'
-alias project-health='smart-hooks summary --verbose'
-```
-
-## 🌟 Advanced Features
-
-### Dependency Graph Analysis
-
-```bash
-smart-hooks analyze dependencies src/core.rs --graph
-```
-
-```
-src/core.rs (current file)
-├── std::collections::HashMap
-├── serde::Serialize
-└── crate::utils::helpers
-    ├── anyhow::Result
-    └── crate::types::Config
-```
-
-### Project Health Assessment
-
-```bash
-smart-hooks summary --verbose
-```
-
-```
-📊 Project Summary Report
-==========================
-
-📋 Project Information:
-   Name: my-awesome-project
-   Languages: Rust, TypeScript (2 total)
-   Complexity Score: 0.43 (Simple)
-
-📦 Dependency Analysis:
-   Total Dependencies: 245
-   External: 189, Internal: 56
-   Avg Dependencies/File: 3.2
-
-🧪 Test Coverage:
-   Total Tests: 1,247
-   Test Ratio: 1.8 tests/file
-   
-💡 Recommendations:
-   ✅ Good test coverage
-   ⚠️  Consider reducing coupling in auth module
-   ✅ Low complexity - well-structured project
-```
-
-## 🔍 How It Works
-
-### 1. **Project Discovery**
-Smart-Hooks scans your project to understand:
-- Languages and frameworks used
-- Build system configuration
-- Dependency management setup
-- Test framework patterns
-
-### 2. **Dependency Analysis**
-For each changed file, Smart-Hooks:
-- Parses AST to understand imports/dependencies
-- Builds a dependency graph
-- Identifies affected modules and tests
-- Calculates confidence scores
-
-### 3. **Intelligent Execution**
-Based on the analysis:
-- Selects only relevant tests to run
-- Applies appropriate formatting tools
-- Runs language-specific quality checks
-- Provides actionable recommendations
-
-## 📚 Documentation
-
-- [🔗 Comparison with Standard Pre-commit](./COMPARISON.md)
-- [🏗️ Technical Design](./DESIGN.md)
-- [📊 Enterprise Datasheet](./DATASHEET.md)
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details.
+1. **Fork the repository**
+2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
+3. **Follow SRP guidelines** (≤300 LOC per module)
+4. **Add comprehensive tests**
+5. **Update documentation**
+6. **Submit a pull request**
+
+### Development Guidelines
+
+- **Single Responsibility Principle** - Each module has one clear purpose
+- **Configuration over code** - Make patterns configurable, not hard-coded
+- **Domain-agnostic design** - Avoid business-specific assumptions
+- **Comprehensive testing** - Maintain >95% test coverage
+- **Clear documentation** - Document architectural decisions
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **Anthropic Claude** for semantic code analysis capabilities
+- **Cucumber** for excellent BDD testing framework
+- **Rust community** for amazing tooling and ecosystem
+- **git-mvh project** for inspiring the initial architecture
 
 ---
 
-**Smart-Hooks**: *Because your time is too valuable to wait for irrelevant tests* ⚡
-
-*Made with ❤️ by the Smart-Hooks team*
+**Built with ❤️ for intelligent test automation across all projects**
