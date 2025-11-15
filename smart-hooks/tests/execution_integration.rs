@@ -256,11 +256,10 @@ fn test_test_plan_creation() {
     let temp_dir = TempDir::new().unwrap();
     create_executable_rust_project(temp_dir.path()).unwrap();
 
-    // Test files that should trigger tests (need to include project root)
-    let project_root = temp_dir.path().to_string_lossy();
+    // Test files that should trigger tests
     let changed_files = vec![
-        format!("{}/src/calculator.rs", project_root),
-        format!("{}/src/validator.rs", project_root),
+        "src/calculator.rs".to_string(),
+        "src/validator.rs".to_string(),
     ];
 
     let config = TestSelectorConfig::path_based_only();
@@ -326,9 +325,9 @@ fn test_invalid_cargo_commands() {
 #[test]
 fn test_test_plan_with_different_configurations() {
     let test_files = vec![
-        "project/src/core/business_logic.rs".to_string(),
-        "project/src/apply/strategy.rs".to_string(),  // This should trigger BDD tests
-        "project/src/utils/helpers.rs".to_string(),
+        "src/core/business_logic.rs".to_string(),
+        "src/api/handlers.rs".to_string(),
+        "src/utils/helpers.rs".to_string(),
     ];
 
     // Test with path-based configuration
@@ -344,7 +343,7 @@ fn test_test_plan_with_different_configurations() {
     assert!(!path_plan.unit_tests.is_empty());
     assert!(!custom_plan.unit_tests.is_empty());
 
-    // Custom config should trigger BDD for apply/ files
+    // Custom config should trigger BDD for API files
     assert!(custom_plan.bdd_tests);
 }
 
