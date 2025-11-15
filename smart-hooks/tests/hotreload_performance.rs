@@ -23,10 +23,10 @@ mod hotreload_performance_tests {
     impl Default for PerformanceTestConfig {
         fn default() -> Self {
             Self {
-                target_cache_hit_rate: 0.40, // 40% hit rate target (realistic with mock)
-                max_cache_miss_time: Duration::from_secs(5), // 5s max for miss
-                max_cache_hit_time: Duration::from_secs(1), // 1s max for hit
-                min_cache_efficiency: 0.30,  // 30% efficiency minimum (realistic)
+                target_cache_hit_rate: 0.80,                    // 80% hit rate target
+                max_cache_miss_time: Duration::from_secs(10),   // 10s max for miss
+                max_cache_hit_time: Duration::from_millis(100), // 100ms max for hit
+                min_cache_efficiency: 0.85,                     // 85% efficiency minimum
             }
         }
     }
@@ -205,7 +205,7 @@ mod tests {{
     }}
 }}
 "#,
-                i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i
+                i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i
             );
 
             fs::write(src_dir.join(format!("module_{}.rs", i)), module_content)?;
@@ -582,14 +582,14 @@ mod tests {{
 
         // Concurrent access should not significantly degrade performance
         assert!(
-            avg_duration <= Duration::from_secs(10),
-            "Average concurrent operation time should be <= 10s, got {:?}",
+            avg_duration <= Duration::from_secs(5),
+            "Average concurrent operation time should be <= 5s, got {:?}",
             avg_duration
         );
 
         assert!(
-            *max_duration <= Duration::from_secs(30),
-            "Max concurrent operation time should be <= 30s, got {:?}",
+            *max_duration <= Duration::from_secs(10),
+            "Max concurrent operation time should be <= 10s, got {:?}",
             max_duration
         );
 
@@ -600,7 +600,7 @@ mod tests {{
 
         // Should have good hit rate even with concurrent access
         assert!(
-            final_stats.hit_rate >= 0.1,
+            final_stats.hit_rate >= 0.3,
             "Hit rate should be reasonable with concurrent access: {:.2}",
             final_stats.hit_rate
         );

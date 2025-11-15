@@ -84,11 +84,8 @@ impl HotReloadEngine {
         // 1. Detect changes
         let changes = self.file_tracker.detect_changes(files).await?;
 
-        // 2. Compute cache key based on files, not changes
-        let cache_key = self
-            .cache_key_computer
-            .compute_cache_key_for_files(files)
-            .await?;
+        // 2. Compute cache key
+        let cache_key = self.cache_key_computer.compute_cache_key(&changes).await?;
 
         // 3. Check cache first
         if let Some(cached_result) = self.cache_storage.get(&cache_key).await? {

@@ -372,7 +372,6 @@ fn test_output_verbosity_levels() {
             "--project-dir",
             &temp_dir.path().to_string_lossy(),
             "--detect-only",
-            "--all-files",
         ])
         .current_dir("../../")
         .output()
@@ -391,7 +390,6 @@ fn test_output_verbosity_levels() {
             &temp_dir.path().to_string_lossy(),
             "--detect-only",
             "--verbose",
-            "--all-files",
         ])
         .current_dir("../../")
         .output()

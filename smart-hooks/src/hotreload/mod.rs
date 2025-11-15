@@ -70,19 +70,6 @@ pub enum HookType {
     Custom(String),
 }
 
-impl HookType {
-    /// Convert hook type to string representation
-    pub fn as_str(&self) -> &str {
-        match self {
-            HookType::Test => "test",
-            HookType::Lint => "lint",
-            HookType::Format => "format",
-            HookType::Analysis => "analysis",
-            HookType::Custom(name) => name,
-        }
-    }
-}
-
 /// Hook execution result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookResult {

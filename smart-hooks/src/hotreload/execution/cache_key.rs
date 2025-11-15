@@ -30,35 +30,6 @@ impl CacheKeyComputer {
         }
     }
 
-    /// Compute deterministic cache key directly from file list
-    pub async fn compute_cache_key_for_files(
-        &self,
-        files: &[PathBuf],
-    ) -> HotReloadResult<CacheKey> {
-        let mut hasher = Hasher::new();
-
-        // Sort files for deterministic hashing
-        let mut sorted_files = files.to_vec();
-        sorted_files.sort();
-
-        for file in &sorted_files {
-            // Hash file content
-            let content = tokio::fs::read(file).await.map_err(|e| {
-                HotReloadError::Cache(format!("Failed to read file {}: {}", file.display(), e))
-            })?;
-            hasher.update(&content);
-
-            // Hash file path for uniqueness
-            hasher.update(file.to_string_lossy().as_bytes());
-        }
-
-        // Include config hash for cache invalidation on configuration changes
-        hasher.update(self.config_hash.as_bytes());
-
-        let hash = hasher.finalize();
-        Ok(CacheKey::new(format!("files-{}", hash.to_hex())))
-    }
-
     /// Compute deterministic cache key from files and dependencies
     pub async fn compute_cache_key(&self, changes: &ChangeSet) -> HotReloadResult<CacheKey> {
         let mut hasher = Hasher::new();

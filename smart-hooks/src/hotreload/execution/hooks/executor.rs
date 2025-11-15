@@ -17,17 +17,12 @@ impl HookExecutor {
     ) -> HotReloadResult<HookResult> {
         let start_time = SystemTime::now();
 
-        let (exit_code, stdout, stderr) = if cfg!(test) {
-            // Use mock execution in tests for consistent results
-            Self::execute_mock_hook(hook_type, changes).await?
-        } else {
-            match hook_type {
-                HookType::Test => Self::execute_test_hook(changes).await?,
-                HookType::Lint => Self::execute_lint_hook(changes).await?,
-                HookType::Format => Self::execute_format_hook(changes).await?,
-                HookType::Analysis => Self::execute_analysis_hook(changes).await?,
-                HookType::Custom(name) => Self::execute_custom_hook(name, changes).await?,
-            }
+        let (exit_code, stdout, stderr) = match hook_type {
+            HookType::Test => Self::execute_test_hook(changes).await?,
+            HookType::Lint => Self::execute_lint_hook(changes).await?,
+            HookType::Format => Self::execute_format_hook(changes).await?,
+            HookType::Analysis => Self::execute_analysis_hook(changes).await?,
+            HookType::Custom(name) => Self::execute_custom_hook(name, changes).await?,
         };
 
         let execution_time = start_time.elapsed().unwrap_or_default();
@@ -40,24 +35,6 @@ impl HookExecutor {
             execution_time,
             timestamp: SystemTime::now(),
         })
-    }
-
-    /// Mock hook execution for tests (deterministic results)
-    pub async fn execute_mock_hook(
-        hook_type: &HookType,
-        changes: &ChangeSet,
-    ) -> HotReloadResult<(i32, String, String)> {
-        // Simulate brief execution time for realistic testing
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-
-        let file_count = changes.all_files().len();
-        let output = format!(
-            "Mock {} hook executed on {} files",
-            hook_type.as_str(),
-            file_count
-        );
-
-        Ok((0, output, String::new()))
     }
 
     /// Execute test hook using smart-hooks test selection

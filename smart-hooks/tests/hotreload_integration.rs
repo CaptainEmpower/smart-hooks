@@ -3,12 +3,11 @@
 
 #[cfg(feature = "hotreload")]
 mod hotreload_tests {
-    use smart_hooks::hotreload::execution::HookDeterminator;
     use smart_hooks::hotreload::*;
     use std::collections::HashMap;
     use std::fs;
     use std::io::Write;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
     use tempfile::TempDir;
@@ -127,9 +126,6 @@ mod tests {
 
         assert!(!result1.results.is_empty());
 
-        // Small delay to ensure any async operations complete
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
         // Second execution with same file should be a cache hit
         let result2 = timeout(
             Duration::from_secs(5),
@@ -139,21 +135,12 @@ mod tests {
         .expect("Timeout on second execution")
         .expect("Second execution should succeed");
 
-        // Results should be consistent (either both from cache or both fresh)
-        // The important thing is that we get cache hits, not that results are identical
-        assert!(!result2.results.is_empty());
+        assert_eq!(result1.results.len(), result2.results.len());
 
         // Verify cache statistics show hits
         let stats = engine.cache_stats().await.unwrap();
-
-        // Debug output for troubleshooting
-        println!(
-            "Cache stats: hits={}, misses={}, total={}",
-            stats.cache_hits, stats.cache_misses, stats.total_requests
-        );
-
-        assert!(stats.total_requests >= 2, "Should have multiple requests");
         assert!(stats.cache_hits > 0, "Should have cache hits");
+        assert!(stats.total_requests >= 2, "Should have multiple requests");
     }
 
     #[tokio::test]
@@ -328,7 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_hook_type_determination() {
-        let (temp_dir, _engine) = create_test_project_with_hotreload().await;
+        let (temp_dir, engine) = create_test_project_with_hotreload().await;
 
         // Create different types of files
         let rust_file = temp_dir.path().join("src/new_module.rs");
@@ -342,12 +329,12 @@ mod tests {
         // Test source code changes
         let mut changes = ChangeSet::new();
         changes.add_changed_file(rust_file);
-        assert!(HookDeterminator::has_source_code_changes(&changes));
+        assert!(engine.has_source_code_changes(&changes));
 
         // Test dependency file changes
         let mut dep_changes = ChangeSet::new();
         dep_changes.add_changed_file(cargo_file);
-        assert!(HookDeterminator::has_dependency_file_changes(&dep_changes));
+        assert!(engine.has_dependency_file_changes(&dep_changes));
     }
 
     #[tokio::test]
