@@ -81,23 +81,13 @@ impl StaticBddSelector {
                 .to_lowercase();
 
             // Check if feature mentions the changed file/module
-            // Try both underscore and space versions
-            let file_name_spaced = file_name.replace("_", " ");
-            if feature_lower.contains(&file_name) || feature_lower.contains(&file_name_spaced) {
+            if feature_lower.contains(&file_name) {
                 relevance_score += 0.4;
             }
 
             // Check for function-level matches
             for function_change in &changed_file.function_changes {
-                let func_lower = function_change.to_lowercase();
-                let func_spaced = func_lower.replace("_", " ");
-                let func_parts: Vec<&str> = func_lower.split("_").collect();
-
-                // Try exact match, spaced version, and individual words
-                if feature_lower.contains(&func_lower)
-                    || feature_lower.contains(&func_spaced)
-                    || func_parts.iter().all(|part| feature_lower.contains(part))
-                {
+                if feature_lower.contains(&function_change.to_lowercase()) {
                     relevance_score += 0.3;
                 }
             }

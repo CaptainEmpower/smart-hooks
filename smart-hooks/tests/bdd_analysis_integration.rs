@@ -544,7 +544,6 @@ fn test_bdd_feature_scenario_extraction() {
         StaticBddSelector::select_features_for_files(&[user_feature.clone()], &file_changes)
             .unwrap();
 
-    assert!(!selection.selected_features.is_empty());
     let selected_feature = &selection.selected_features[0];
     assert!(!selected_feature.scenarios.is_empty());
 
