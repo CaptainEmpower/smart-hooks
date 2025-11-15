@@ -43,7 +43,6 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 serde_json = "1.0"
 futures = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
 
 # Optional Claude AI integration - using CLI directly due to SDK issues
 tokio = { version = "1.0", optional = true, features = ["full"] }
