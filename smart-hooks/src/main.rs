@@ -27,40 +27,13 @@ enum Commands {
     /// Code analysis and validation hooks
     #[command(subcommand)]
     Check(CheckCommands),
-
-    /// Code formatting commands
-    #[command(subcommand)]
-    Format(FormatCommands),
-
-    /// Code linting commands
-    #[command(subcommand)]
-    Lint(LintCommands),
-
-    /// Dependency analysis commands
-    #[command(subcommand)]
-    Analyze(AnalyzeCommands),
-
-    /// Project summary and reporting
-    Summary {
-        /// Project directory to analyze
-        #[arg(short, long, default_value = ".")]
-        project_dir: std::path::PathBuf,
-
-        /// Output format (text, json)
-        #[arg(long, default_value = "text")]
-        format: String,
-
-        /// Verbose output
-        #[arg(long, short)]
-        verbose: bool,
-    },
 }
 
 #[derive(Subcommand)]
 enum TestCommands {
     /// Run selective unit tests for changed modules
-    #[command(name = "selective")]
-    Selective {
+    #[command(name = "selective-unit")]
+    SelectiveUnit {
         /// Files to analyze (passed from pre-commit)
         files: Vec<String>,
 
@@ -147,69 +120,6 @@ enum CheckCommands {
     },
 }
 
-#[derive(Subcommand)]
-enum FormatCommands {
-    /// Auto-format code using appropriate tools for detected languages
-    Auto {
-        /// Files to format (passed from pre-commit)
-        files: Vec<String>,
-
-        /// Check only mode (don't modify files)
-        #[arg(long)]
-        check: bool,
-
-        /// Language to format (auto-detect if not specified)
-        #[arg(long)]
-        language: Option<String>,
-
-        /// Verbose output
-        #[arg(long, short)]
-        verbose: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum LintCommands {
-    /// Run linting using appropriate tools for detected languages
-    Auto {
-        /// Files to lint (passed from pre-commit)
-        files: Vec<String>,
-
-        /// Language to lint (auto-detect if not specified)
-        #[arg(long)]
-        language: Option<String>,
-
-        /// Fix issues automatically where possible
-        #[arg(long)]
-        fix: bool,
-
-        /// Verbose output
-        #[arg(long, short)]
-        verbose: bool,
-    },
-}
-
-#[derive(Subcommand)]
-enum AnalyzeCommands {
-    /// Analyze project dependencies and provide impact analysis
-    Dependencies {
-        /// Files that have changed
-        files: Vec<String>,
-
-        /// Show detailed dependency graph
-        #[arg(long)]
-        graph: bool,
-
-        /// Focus on specific language
-        #[arg(long)]
-        language: Option<String>,
-
-        /// Verbose output
-        #[arg(long, short)]
-        verbose: bool,
-    },
-}
-
 #[cfg(feature = "claude-ai")]
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -226,7 +136,7 @@ async fn run_main() -> Result<()> {
 
     match cli.command {
         Commands::Test(test_cmd) => match test_cmd {
-            TestCommands::Selective { files, verbose } => {
+            TestCommands::SelectiveUnit { files, verbose } => {
                 commands::test::selective_unit::run(files, verbose).await
             }
             TestCommands::Integration { force, verbose } => {
@@ -272,35 +182,6 @@ async fn run_main() -> Result<()> {
                 .await
             }
         },
-        Commands::Format(format_cmd) => match format_cmd {
-            FormatCommands::Auto {
-                files,
-                check,
-                language,
-                verbose,
-            } => commands::format::auto::run(files, check, language, verbose).await,
-        },
-        Commands::Lint(lint_cmd) => match lint_cmd {
-            LintCommands::Auto {
-                files,
-                language,
-                fix,
-                verbose,
-            } => commands::lint::auto::run(files, language, fix, verbose).await,
-        },
-        Commands::Analyze(analyze_cmd) => match analyze_cmd {
-            AnalyzeCommands::Dependencies {
-                files,
-                graph,
-                language,
-                verbose,
-            } => commands::analyze::dependencies::run(files, graph, language, verbose).await,
-        },
-        Commands::Summary {
-            project_dir,
-            format,
-            verbose,
-        } => commands::summary::run(project_dir, format, verbose).await,
     }
 }
 

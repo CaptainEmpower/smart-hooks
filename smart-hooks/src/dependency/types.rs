@@ -32,32 +32,6 @@ pub enum DependencyType {
     DocTest,
 }
 
-impl std::fmt::Display for DependencyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DependencyType::ModuleUse => write!(f, "ModuleUse"),
-            DependencyType::FunctionCall => write!(f, "FunctionCall"),
-            DependencyType::TraitImpl => write!(f, "TraitImpl"),
-            DependencyType::MacroUse => write!(f, "MacroUse"),
-            DependencyType::TestDependency => write!(f, "TestDependency"),
-            DependencyType::IntegrationTest => write!(f, "IntegrationTest"),
-            DependencyType::DocTest => write!(f, "DocTest"),
-        }
-    }
-}
-
-impl std::fmt::Display for TestType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TestType::Unit { module } => write!(f, "Unit({})", module),
-            TestType::Integration { test_file } => write!(f, "Integration({})", test_file),
-            TestType::Doc { source_file } => write!(f, "Doc({})", source_file),
-            TestType::Benchmark { bench_name } => write!(f, "Benchmark({})", bench_name),
-            TestType::Custom { command } => write!(f, "Custom({})", command),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestTarget {
     /// Name of the test target
