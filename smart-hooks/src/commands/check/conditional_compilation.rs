@@ -45,19 +45,11 @@ pub async fn run(
         return Ok(());
     }
 
-    println!(
-        "🔍 Found {} conditional compilation pattern(s)",
-        conditional_patterns.len()
-    );
+    println!("🔍 Found {} conditional compilation pattern(s)", conditional_patterns.len());
 
     if verbose {
         for pattern in &conditional_patterns {
-            println!(
-                "  📄 {}:{} - {}",
-                pattern.file.display(),
-                pattern.line_number,
-                pattern.pattern
-            );
+            println!("  📄 {}:{} - {}", pattern.file.display(), pattern.line_number, pattern.pattern);
             if !pattern.context.trim().is_empty() {
                 println!("     Context: {}", pattern.context.trim());
             }
@@ -77,9 +69,7 @@ pub async fn run(
     if let Err(e) = run_cargo_check(&["--no-default-features", "--workspace"]) {
         println!("❌ Failed with no default features:");
         println!("{}", e);
-        return Err(anyhow::anyhow!(
-            "Cargo check failed with no default features"
-        ));
+        return Err(anyhow::anyhow!("Cargo check failed with no default features"));
     }
 
     // Check with all features
@@ -98,25 +88,19 @@ pub async fn run(
             if verbose {
                 println!("    Checking crate: {}", member);
             }
-
+            
             // Check member with no features
             if let Err(e) = run_cargo_check(&["--no-default-features", "-p", &member]) {
                 println!("❌ Crate {} failed with no default features:", member);
                 println!("{}", e);
-                return Err(anyhow::anyhow!(
-                    "Cargo check failed for crate {} with no default features",
-                    member
-                ));
+                return Err(anyhow::anyhow!("Cargo check failed for crate {} with no default features", member));
             }
 
-            // Check member with all features
+            // Check member with all features  
             if let Err(e) = run_cargo_check(&["--all-features", "-p", &member]) {
                 println!("❌ Crate {} failed with all features:", member);
                 println!("{}", e);
-                return Err(anyhow::anyhow!(
-                    "Cargo check failed for crate {} with all features",
-                    member
-                ));
+                return Err(anyhow::anyhow!("Cargo check failed for crate {} with all features", member));
             }
         }
     }
@@ -149,14 +133,9 @@ fn get_all_rust_files(project_root: &Path) -> Result<Vec<PathBuf>> {
     let output = Command::new("find")
         .args([
             project_root.to_str().unwrap(),
-            "-name",
-            "*.rs",
-            "-not",
-            "-path",
-            "*/target/*",
-            "-not",
-            "-path",
-            "*/.git/*",
+            "-name", "*.rs",
+            "-not", "-path", "*/target/*",
+            "-not", "-path", "*/.git/*"
         ])
         .output()
         .context("Failed to find Rust files")?;
@@ -186,10 +165,12 @@ fn detect_conditional_patterns(files: &[PathBuf]) -> Result<Vec<ConditionalPatte
                 if let Some(start) = line.find("#[cfg(") {
                     if let Some(end) = line[start..].find(")]") {
                         let pattern = &line[start..start + end + 2];
-
+                        
                         // Get some context (next few lines for imports)
-                        let context_lines: Vec<&str> =
-                            content.lines().skip(line_num + 1).take(3).collect();
+                        let context_lines: Vec<&str> = content.lines()
+                            .skip(line_num + 1)
+                            .take(3)
+                            .collect();
                         let context = context_lines.join(" ");
 
                         patterns.push(ConditionalPattern {
@@ -219,17 +200,14 @@ fn run_cargo_check(args: &[&str]) -> Result<()> {
 
     // Check for warnings and errors
     let combined_output = format!("{}\n{}", stdout, stderr);
-
+    
     if !output.status.success() {
         return Err(anyhow::anyhow!("Cargo check failed:\n{}", combined_output));
     }
 
     // Check for unused import warnings specifically
     if combined_output.contains("unused import") || combined_output.contains("unused imports") {
-        return Err(anyhow::anyhow!(
-            "Found unused imports:\n{}",
-            combined_output
-        ));
+        return Err(anyhow::anyhow!("Found unused imports:\n{}", combined_output));
     }
 
     // Check for other warnings that might indicate conditional compilation issues
@@ -239,13 +217,10 @@ fn run_cargo_check(args: &[&str]) -> Result<()> {
             .lines()
             .filter(|line| line.contains("warning:"))
             .collect();
-
+        
         for warning in warning_lines {
             // These are the types of warnings we care about for conditional compilation
-            if warning.contains("unused")
-                || warning.contains("dead_code")
-                || warning.contains("unreachable_code")
-            {
+            if warning.contains("unused") || warning.contains("dead_code") || warning.contains("unreachable_code") {
                 return Err(anyhow::anyhow!("Found compilation warnings that may indicate conditional compilation issues:\n{}", combined_output));
             }
         }
@@ -255,14 +230,14 @@ fn run_cargo_check(args: &[&str]) -> Result<()> {
 }
 
 fn has_workspace_members() -> Result<bool> {
-    Ok(Path::new("Cargo.toml").exists()
-        && std::fs::read_to_string("Cargo.toml")?.contains("[workspace]"))
+    Ok(Path::new("Cargo.toml").exists() && 
+       std::fs::read_to_string("Cargo.toml")?.contains("[workspace]"))
 }
 
 fn get_workspace_members() -> Result<Vec<String>> {
     let cargo_toml = std::fs::read_to_string("Cargo.toml")?;
     let parsed: toml::Value = cargo_toml.parse()?;
-
+    
     let mut members = Vec::new();
     if let Some(workspace) = parsed.get("workspace") {
         if let Some(member_array) = workspace.get("members").and_then(|v| v.as_array()) {
@@ -271,11 +246,11 @@ fn get_workspace_members() -> Result<Vec<String>> {
                     // Extract package name from member path
                     let member_path = Path::new(member_str);
                     let cargo_toml_path = member_path.join("Cargo.toml");
-
+                    
                     if cargo_toml_path.exists() {
                         let member_cargo = std::fs::read_to_string(cargo_toml_path)?;
                         let member_parsed: toml::Value = member_cargo.parse()?;
-
+                        
                         if let Some(package) = member_parsed.get("package") {
                             if let Some(name) = package.get("name").and_then(|n| n.as_str()) {
                                 members.push(name.to_string());
@@ -286,7 +261,7 @@ fn get_workspace_members() -> Result<Vec<String>> {
             }
         }
     }
-
+    
     Ok(members)
 }
 
@@ -300,10 +275,8 @@ mod tests {
     async fn test_detect_conditional_patterns() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = temp_dir.path().join("test.rs");
-
-        fs::write(
-            &test_file,
-            r#"
+        
+        fs::write(&test_file, r#"
 #[cfg(feature = "test")]
 use some_crate::feature_specific;
 
@@ -311,9 +284,7 @@ use some_crate::feature_specific;
 use another_crate::not_test;
 
 fn main() {}
-"#,
-        )
-        .unwrap();
+"#).unwrap();
 
         let patterns = detect_conditional_patterns(&[test_file]).unwrap();
         assert_eq!(patterns.len(), 2);
@@ -325,18 +296,14 @@ fn main() {}
     async fn test_no_patterns() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = temp_dir.path().join("test.rs");
-
-        fs::write(
-            &test_file,
-            r#"
+        
+        fs::write(&test_file, r#"
 use std::collections::HashMap;
 
 fn main() {
     println!("Hello, world!");
 }
-"#,
-        )
-        .unwrap();
+"#).unwrap();
 
         let patterns = detect_conditional_patterns(&[test_file]).unwrap();
         assert_eq!(patterns.len(), 0);
@@ -346,24 +313,19 @@ fn main() {
     async fn test_detect_only_mode() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = temp_dir.path().join("test.rs");
-
-        fs::write(
-            &test_file,
-            r#"
+        
+        fs::write(&test_file, r#"
 #[cfg(feature = "example")]
 use example::Thing;
-"#,
-        )
-        .unwrap();
+"#).unwrap();
 
         // Test detect-only mode with conditional patterns
         let result = run(
-            true,                                // all_files (so it doesn't try git commands)
+            true,                               // all_files (so it doesn't try git commands)
             Some(temp_dir.path().to_path_buf()), // project_dir
-            true,                                // detect_only
-            false,                               // verbose
-        )
-        .await;
+            true,                               // detect_only  
+            false                               // verbose
+        ).await;
 
         assert!(result.is_ok());
     }
@@ -371,18 +333,17 @@ use example::Thing;
     #[tokio::test]
     async fn test_no_rust_files() {
         let temp_dir = TempDir::new().unwrap();
-
+        
         // Create a non-rust file to ensure directory is not empty
         fs::write(temp_dir.path().join("test.txt"), "hello").unwrap();
-
+        
         // Test with no Rust files - use detect_only to avoid cargo commands
         let result = run(
-            true,                                // all_files (so it doesn't try git commands)
+            true,                               // all_files (so it doesn't try git commands)
             Some(temp_dir.path().to_path_buf()), // project_dir
-            true,                                // detect_only
-            false,                               // verbose
-        )
-        .await;
+            true,                               // detect_only  
+            false                               // verbose
+        ).await;
 
         assert!(result.is_ok());
     }
@@ -393,10 +354,10 @@ use example::Thing;
         let temp_dir = TempDir::new().unwrap();
         let old_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp_dir.path()).unwrap();
-
+        
         let result = get_staged_rust_files();
         std::env::set_current_dir(old_dir).unwrap();
-
+        
         // Should error since there's no git repo
         assert!(result.is_err());
     }
@@ -405,39 +366,31 @@ use example::Thing;
     fn test_has_workspace_members() {
         let temp_dir = TempDir::new().unwrap();
         let cargo_toml = temp_dir.path().join("Cargo.toml");
-
+        
         // Test without workspace
-        fs::write(
-            &cargo_toml,
-            r#"
+        fs::write(&cargo_toml, r#"
 [package]
 name = "test"
 version = "0.1.0"
-"#,
-        )
-        .unwrap();
-
+"#).unwrap();
+        
         let old_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(temp_dir.path()).unwrap();
-
+        
         assert!(!has_workspace_members().unwrap());
-
+        
         // Test with workspace
-        fs::write(
-            &cargo_toml,
-            r#"
+        fs::write(&cargo_toml, r#"
 [workspace]
 members = ["crate1", "crate2"]
 
 [package]
 name = "test"
 version = "0.1.0"
-"#,
-        )
-        .unwrap();
-
+"#).unwrap();
+        
         assert!(has_workspace_members().unwrap());
-
+        
         std::env::set_current_dir(old_dir).unwrap();
     }
 }
