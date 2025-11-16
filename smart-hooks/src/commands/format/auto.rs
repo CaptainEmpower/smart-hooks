@@ -81,8 +81,10 @@ pub async fn run(
                     eprintln!("❌ Failed to format {:?} files: {}", language, e);
                 }
             }
-        } else if verbose {
-            println!("⚠️  No formatter configuration found for {:?}", language);
+        } else {
+            if verbose {
+                println!("⚠️  No formatter configuration found for {:?}", language);
+            }
         }
     }
 
@@ -217,15 +219,17 @@ async fn format_files_for_language(
 
                 if output.status.success() {
                     formatted_count += 1;
-                } else if check_only {
-                    // In check mode, non-zero exit usually means formatting is needed
-                    formatted_count += 1;
                 } else {
-                    eprintln!(
-                        "⚠️  Failed to format {}: {}",
-                        file,
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    if check_only {
+                        // In check mode, non-zero exit usually means formatting is needed
+                        formatted_count += 1;
+                    } else {
+                        eprintln!(
+                            "⚠️  Failed to format {}: {}",
+                            file,
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
                 }
             }
 

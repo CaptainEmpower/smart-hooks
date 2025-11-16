@@ -24,8 +24,7 @@ pub async fn run(project_dir: PathBuf, format: String, verbose: bool) -> Result<
     // Output results based on format
     match format.as_str() {
         "json" => output_json(&stats, &project_config)?,
-        "text" => output_text(&stats, &project_config, verbose)?,
-        _ => output_text(&stats, &project_config, verbose)?,
+        "text" | _ => output_text(&stats, &project_config, verbose)?,
     }
 
     Ok(())

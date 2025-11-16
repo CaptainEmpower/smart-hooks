@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use smart_hooks::dependency::MultiLangDependencyAnalyzer;
 use smart_hooks::project::{Language, MultiLangProjectDiscovery};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "multi-lang-analyzer")]
@@ -522,7 +522,7 @@ fn show_project_summary(
     Ok(())
 }
 
-fn detect_file_language(file_path: &Path) -> Language {
+fn detect_file_language(file_path: &PathBuf) -> Language {
     if let Some(extension) = file_path.extension().and_then(|s| s.to_str()) {
         match extension {
             "rs" => Language::Rust,

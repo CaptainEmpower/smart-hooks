@@ -36,7 +36,7 @@ pub async fn run(
     let analyzer = MultiLangDependencyAnalyzer::new(project_config);
 
     // Convert string paths to PathBuf (for future use)
-    let _file_paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+    let _file_paths: Vec<PathBuf> = files.iter().map(|f| PathBuf::from(f)).collect();
 
     // Group files by language for analysis
     let files_by_language = group_files_by_language(&files);
@@ -84,7 +84,8 @@ pub async fn run(
         }
 
         // Find affected tests
-        let file_paths_for_lang: Vec<PathBuf> = file_list.iter().map(PathBuf::from).collect();
+        let file_paths_for_lang: Vec<PathBuf> =
+            file_list.iter().map(|f| PathBuf::from(f)).collect();
         match analyzer.find_cross_language_affected_tests(&file_paths_for_lang) {
             Ok(tests) => {
                 if !tests.is_empty() {

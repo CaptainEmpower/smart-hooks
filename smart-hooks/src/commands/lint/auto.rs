@@ -79,8 +79,10 @@ pub async fn run(
                     eprintln!("❌ Failed to lint {:?} files: {}", language, e);
                 }
             }
-        } else if verbose {
-            println!("⚠️  No linter configuration found for {:?}", language);
+        } else {
+            if verbose {
+                println!("⚠️  No linter configuration found for {:?}", language);
+            }
         }
     }
 
