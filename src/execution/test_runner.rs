@@ -21,7 +21,7 @@ pub fn run_cargo_command(args: &[&str], cwd: Option<&Path>) -> Result<bool> {
 pub fn run_unit_test(module_name: &str) -> Result<bool> {
     run_cargo_command(
         &["test", module_name, "--lib", "--quiet"],
-        Some(Path::new("crates/git-mvh")),
+        None, // Use current directory since we're now standalone
     )
 }
 
@@ -29,7 +29,7 @@ pub fn run_unit_test(module_name: &str) -> Result<bool> {
 pub fn run_integration_tests() -> Result<bool> {
     run_cargo_command(
         &["test", "--test", "integration_test", "--quiet"],
-        Some(Path::new("crates/git-mvh")),
+        None, // Use current directory since we're now standalone
     )
 }
 
@@ -37,7 +37,7 @@ pub fn run_integration_tests() -> Result<bool> {
 pub fn run_bdd_tests() -> Result<bool> {
     run_cargo_command(
         &["test", "--test", "cucumber_tests", "--quiet"],
-        Some(Path::new("crates/git-mvh")),
+        None, // Use current directory since we're now standalone
     )
 }
 
