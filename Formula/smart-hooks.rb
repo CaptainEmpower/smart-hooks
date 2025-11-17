@@ -12,7 +12,9 @@ class SmartHooks < Formula
   end
 
   test do
-    system "#{bin}/smart-test-selector", "--help"
-    system "#{bin}/claude-bdd-selector", "--help"
+    system "#{bin}/smart-hooks", "--help"
+    system "#{bin}/smart-hooks", "test", "--help"
+    system "#{bin}/smart-hooks", "analyze", "--help"
+    system "#{bin}/smart-hooks", "check", "--help"
   end
 end
