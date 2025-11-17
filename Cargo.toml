@@ -10,20 +10,8 @@ keywords = ["git", "hooks", "testing", "bdd", "automation"]
 categories = ["development-tools", "command-line-utilities"]
 
 [[bin]]
-name = "selective-unit-tests"
-path = "src/selective_unit_tests.rs"
-
-[[bin]]
-name = "integration-tests-if-needed"
-path = "src/integration_tests_if_needed.rs"
-
-[[bin]]
-name = "smart-test-selector"
-path = "src/smart_test_selector_refactored.rs"
-
-[[bin]]
-name = "claude-bdd-selector"
-path = "src/claude_bdd_selector.rs"
+name = "smart-hooks"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
