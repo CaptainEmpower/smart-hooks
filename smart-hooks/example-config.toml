@@ -1,0 +1,113 @@
+# Example configuration for smart-hooks test selector
+# This replaces hard-coded patterns with configurable, project-specific rules
+
+# Whether to enable content-based analysis (requires reading file contents)
+enable_content_analysis = false
+
+# File patterns that should trigger unit tests for specific modules
+# Map file pattern to module name
+[unit_test_patterns]
+"move_validator.rs" = "move_validator"
+"history_processor.rs" = "history_processor"
+"file_mover_service.rs" = "file_mover_service"
+"applier.rs" = "applier"
+"conflict.rs" = "conflict"
+
+# File patterns that should trigger integration tests
+integration_test_patterns = [
+    "/core/",
+    "/types.rs",
+    "/error.rs",
+    "/lib.rs",
+    "move_validator.rs",
+    "/repository/",
+]
+
+# File patterns that should trigger BDD tests
+bdd_test_patterns = [
+    "/apply/",
+    "/strategy/",
+    "/fast_export/",
+    "file_mover_service.rs",
+    "service.rs",
+    "/patch/",
+]
+
+# Generic structural patterns for BDD test selection
+# These patterns are domain-agnostic and based on common software architecture
+[bdd_structural_patterns]
+# Core business logic directories
+core_business_logic = [
+    "/core/",
+    "/service/",
+    "/domain/",
+    "/business/",
+    "/logic/"
+]
+
+# Application logic and strategy patterns
+application_logic = [
+    "/apply/",
+    "/strategy/",
+    "/handler/",
+    "/processor/",
+    "/workflow/",
+    "/pipeline/"
+]
+
+# Error handling and validation
+error_handling = [
+    "/error",
+    "/validate",
+    "/types",
+    "/validation/",
+    "/exception/"
+]
+
+# API endpoints and controllers
+api_interfaces = [
+    "/api/",
+    "/controller/",
+    "/endpoint/",
+    "/route/",
+    "/web/",
+    "/http/"
+]
+
+# Additional behavioral patterns
+behavioral_patterns = [
+    "/command/",
+    "/event/",
+    "/aggregate/",
+    "/saga/",
+    "/policy/"
+]
+
+# Pattern-to-Tag mapping for cucumber BDD tests
+# Maps structural patterns to cucumber tags for semantic test selection
+[bdd_pattern_tags]
+# Core business logic → @business-logic tag
+"/core/" = ["@business-logic", "@critical"]
+"/service/" = ["@business-logic", "@integration"]
+"/domain/" = ["@business-logic", "@domain-rules"]
+
+# Application logic → @workflow tag
+"/apply/" = ["@workflow", "@process"]
+"/strategy/" = ["@workflow", "@decision"]
+"/handler/" = ["@workflow", "@command"]
+"/processor/" = ["@workflow", "@data"]
+
+# Error handling → @error-handling tag
+"/error" = ["@error-handling", "@robustness"]
+"/validate" = ["@error-handling", "@validation"]
+"/types" = ["@error-handling", "@data-integrity"]
+
+# API interfaces → @api tag
+"/api/" = ["@api", "@external"]
+"/controller/" = ["@api", "@web"]
+"/endpoint/" = ["@api", "@rest"]
+
+# Behavioral patterns → domain-specific tags
+"/command/" = ["@cqrs", "@command"]
+"/event/" = ["@events", "@async"]
+"/aggregate/" = ["@ddd", "@aggregate"]
