@@ -4,9 +4,9 @@
 [![Tests](https://img.shields.io/badge/tests-44%20passing-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Intelligent git hooks that understand your code changes and automatically select the right tests to run.**
+**A modern replacement for pre-commit with intelligent code analysis. Built in Rust for performance and reliability.**
 
-smart-hooks provides a sophisticated, AI-powered system for automatically selecting and running the right tests based on file changes. It uses structural pattern analysis and optional Claude AI integration to understand code changes and intelligently target relevant test suites.
+smart-hooks is designed as a faster, smarter alternative to pre-commit. Instead of simple file pattern matching, it understands your code changes and intelligently selects relevant tests. Features AI-powered analysis, multi-language support, and zero-configuration setup.
 
 ## ✨ Features
 
@@ -70,26 +70,31 @@ smart-hooks check [PATH]            # Check conditional compilation
 smart-hooks bdd [FILES]...          # BDD feature selection (requires claude-ai)
 ```
 
-1. **Install pre-commit hooks:**
+**Direct Usage (no additional tools needed):**
 ```bash
-pip install pre-commit
-pre-commit install
+# Analyze specific files
+smart-hooks test src/main.rs src/lib.rs
+
+# Analyze changed files in git
+smart-hooks test $(git diff --cached --name-only --diff-filter=AM)
+
+# Analyze entire project
+smart-hooks analyze --verbose
+
+# Check compilation configuration
+smart-hooks check
 ```
 
-2. **Configure `.pre-commit-config.yaml`:**
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: smart-hooks-test
-        name: Smart Test Selection
-        entry: smart-hooks test
-        language: system
-        files: '^src/.*\.rs$'
-        pass_filenames: true
+**Git Hook Integration (manual setup):**
+```bash
+# Add to .git/hooks/pre-commit
+#!/bin/sh
+exec smart-hooks test $(git diff --cached --name-only --diff-filter=AM)
 ```
 
-3. **Create configuration file** (`config.toml`):
+## ⚙️ Configuration
+
+**Create configuration file** (`config.toml`):
 ```toml
 enable_content_analysis = false
 
@@ -345,19 +350,25 @@ script:
   - smart-hooks check
 ```
 
-### With Pre-commit
+### Migration from pre-commit
 
-```yaml
-# .pre-commit-config.yaml
-repos:
-  - repo: local
-    hooks:
-      - id: smart-hooks
-        name: Smart Hooks Analysis
-        entry: smart-hooks test
-        files: '^src/.*\.rs$'
-        language: system
-        pass_filenames: true
+smart-hooks is designed as a modern replacement for pre-commit with significant advantages:
+
+**vs pre-commit framework:**
+- ✅ **Native Rust performance** instead of Python overhead
+- ✅ **Intelligent code analysis** instead of simple pattern matching
+- ✅ **Understanding code changes** instead of just file modifications
+- ✅ **Built-in multi-language support** instead of separate plugins
+- ✅ **Zero configuration** for common use cases
+
+**Replace your `.pre-commit-config.yaml` with direct git hooks:**
+```bash
+# Instead of: pip install pre-commit && pre-commit install
+# Just use: smart-hooks directly in git hooks
+
+# .git/hooks/pre-commit
+#!/bin/sh
+smart-hooks test $(git diff --cached --name-only --diff-filter=AM)
 ```
 
 ### With Custom Scripts
