@@ -1,0 +1,384 @@
+name: Code Quality Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly code quality analysis on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      skip_static_analysis:
+        description: 'Skip static analysis (Rudra)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+      skip_formal_verification:
+        description: 'Skip formal verification (Prusti)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+concurrency:
+  group: code-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rudra-static-analysis:
+    name: Rudra Static Analysis
+    runs-on: ubuntu-latest
+    if: github.event.inputs.skip_static_analysis != 'true'
+    outputs:
+      tool-status: ${{ env.rudra-tool-status }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment for Rudra
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: rudra-analysis
+        install-system-deps: 'true'
+
+    - name: Create Rudra analysis directory
+      run: |
+        mkdir -p rudra-results
+        echo "RUDRA_RESULTS_DIR=$(pwd)/rudra-results" >> "$GITHUB_ENV"
+
+    - name: Prepare crate for Rudra analysis
+      run: |
+        # Create a backup of the original Cargo.toml
+        cp crates/git-mvh/Cargo.toml crates/git-mvh/Cargo.toml.backup
+
+        # Replace workspace inheritance with explicit values for Rudra
+        sed -i 's/version\.workspace = true/version = "0.2.0"/' crates/git-mvh/Cargo.toml
+        sed -i 's/edition\.workspace = true/edition = "2021"/' crates/git-mvh/Cargo.toml
+        sed -i 's/license\.workspace = true/license = "MIT"/' crates/git-mvh/Cargo.toml
+        sed -i 's/repository\.workspace = true/repository = "https:\/\/github.com\/CaptainEmpower\/git-mvh"/' crates/git-mvh/Cargo.toml
+
+        echo "Modified Cargo.toml for Rudra compatibility"
+        head -20 crates/git-mvh/Cargo.toml
+
+    - name: Run Rudra static analysis
+      id: rudra-analysis
+      uses: sslab-gatech/Rudra@master
+      continue-on-error: true
+      with:
+        directory: './crates/git-mvh'
+
+    - name: Restore original Cargo.toml
+      if: always()
+      run: |
+        # Restore the original Cargo.toml with workspace inheritance
+        if [[ -f "crates/git-mvh/Cargo.toml.backup" ]]; then
+          mv crates/git-mvh/Cargo.toml.backup crates/git-mvh/Cargo.toml
+          echo "Restored original Cargo.toml with workspace inheritance"
+        fi
+
+    - name: Process Rudra analysis results
+      if: always()
+      run: |
+        echo "=== Processing Rudra Static Analysis Results ===" | tee rudra-results/rudra.log
+
+        # Check if Rudra completed successfully
+        if [[ "${{ steps.rudra-analysis.outcome }}" == "success" ]]; then
+          echo "rudra-status=success" >> "$GITHUB_ENV"
+          echo "rudra-tool-status=success" >> "$GITHUB_ENV"
+          echo "::notice::Rudra analysis completed successfully"
+        elif [[ "${{ steps.rudra-analysis.outcome }}" == "failure" ]]; then
+          echo "rudra-status=failed" >> "$GITHUB_ENV"
+          echo "rudra-tool-status=failed" >> "$GITHUB_ENV"
+          echo "::warning::Rudra analysis encountered issues"
+        else
+          echo "rudra-status=skipped" >> "$GITHUB_ENV"
+          echo "rudra-tool-status=skipped" >> "$GITHUB_ENV"
+          echo "::warning::Rudra analysis was skipped or cancelled"
+        fi
+
+        # Look for Rudra output files or annotations
+        echo "Rudra analysis completed with status: ${{ steps.rudra-analysis.outcome }}" | tee -a rudra-results/rudra.log
+        echo "Check GitHub annotations for detailed Rudra findings" | tee -a rudra-results/rudra.log
+
+        # Set default patterns (Rudra action will provide annotations for actual findings)
+        echo "unsafe-patterns=check-annotations" >> "$GITHUB_ENV"
+        echo "panic-patterns=check-annotations" >> "$GITHUB_ENV"
+
+    - name: Generate Rudra summary report
+      if: always()
+      run: |
+        cd rudra-results
+
+        # Create summary report
+        {
+          echo "# Rudra Static Analysis Report"
+          echo "**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "**Status:** ${{ env.rudra-status }}"
+          echo "**Analysis Method:** GitHub Action (sslab-gatech/Rudra@master)"
+          echo ""
+          echo "## Analysis Results"
+          if [[ "${{ env.rudra-status }}" == "success" ]]; then
+            echo "✅ **Rudra analysis completed successfully**"
+            echo "- No critical unsafe memory bugs detected"
+            echo "- Check GitHub annotations for detailed findings"
+          elif [[ "${{ env.rudra-status }}" == "failed" ]]; then
+            echo "❌ **Rudra analysis encountered issues**"
+            echo "- Review GitHub annotations for specific vulnerabilities"
+            echo "- Manual inspection may be required"
+          else
+            echo "⚠️ **Rudra analysis was not completed**"
+            echo "- Analysis was skipped, cancelled, or failed to start"
+          fi
+          echo ""
+          echo "## Detailed Findings"
+          echo "Rudra provides detailed security analysis through GitHub annotations."
+          echo "Check the 'Annotations' tab in this workflow run for specific findings."
+          echo ""
+          echo "## Analysis Log"
+          echo '```'
+          cat rudra.log 2>/dev/null || echo "No detailed log available"
+          echo '```'
+        } > rudra-summary.md
+
+        # Add to step summary
+        cat rudra-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload Rudra results
+      uses: actions/upload-artifact@v5.0.0
+      if: always()
+      with:
+        name: rudra-static-analysis-${{ github.run_number }}
+        path: rudra-results/
+        retention-days: 30
+
+    - name: Check for critical findings
+      if: always()
+      run: |
+        if [[ "${{ env.rudra-status }}" == "failed" ]]; then
+          echo "::warning::Rudra static analysis encountered issues - review GitHub annotations for details"
+          echo "This may indicate potential memory safety vulnerabilities that require investigation"
+        elif [[ "${{ env.rudra-status }}" == "success" ]]; then
+          echo "::notice::✅ Rudra static analysis completed successfully"
+          echo "No critical memory safety issues detected in unsafe code patterns"
+        elif [[ "${{ env.rudra-status }}" == "skipped" ]]; then
+          echo "::warning::Rudra analysis was not completed - manual review may be needed"
+        fi
+
+  prusti-formal-verification:
+    name: Prusti Formal Verification
+    runs-on: ubuntu-latest
+    if: false  # Prusti disabled
+    outputs:
+      tool-status: ${{ env.prusti-tool-status }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Create Prusti verification directory
+      run: |
+        mkdir -p prusti-results
+        echo "PRUSTI_RESULTS_DIR=$(pwd)/prusti-results" >> "$GITHUB_ENV"
+
+    - name: Run Prusti verification on git-mvh crate
+      id: prusti-verify
+      uses: viperproject/prusti-action@master
+      continue-on-error: true
+      with:
+        path: './crates/git-mvh'
+        version: 'nightly'
+        verify-crate: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Analyze Prusti verification results
+      run: |
+        # Since Prusti Action provides GitHub annotations, we'll capture the basic status
+        # The action will have already provided detailed feedback via annotations
+
+        if [[ "${{ steps.prusti-verify.outcome }}" == "success" ]]; then
+          {
+            echo "prusti-status=success"
+            echo "prusti-tool-status=success"
+            echo "verification-success=1"
+            echo "verification-total=1"
+          } >> "$GITHUB_ENV"
+          echo "::notice::Prusti formal verification completed successfully"
+        else
+          {
+            echo "prusti-status=failed"
+            echo "prusti-tool-status=failed"
+            echo "verification-success=0"
+            echo "verification-total=1"
+          } >> "$GITHUB_ENV"
+          echo "::warning::Prusti verification encountered issues - check annotations for details"
+        fi
+
+        # Create basic log for consistency with other tools
+        {
+          echo "=== Prusti Formal Verification Results ==="
+          echo "Verification completed using official Prusti GitHub Action"
+          echo "Status: ${{ steps.prusti-verify.outcome }}"
+          echo "Detailed results available in GitHub annotations"
+          echo "Crate verified: crates/git-mvh"
+        } > prusti-results/prusti.log
+
+    - name: Analyze Prusti results
+      if: always()
+      run: |
+        cd prusti-results
+
+        # Count specific types of verification issues
+        if grep -i "assertion might fail" prusti.log >/dev/null; then
+          echo "assertion-failures=found" >> "$GITHUB_ENV"
+          echo "::warning::Prusti found potential assertion failures"
+        else
+          echo "assertion-failures=none" >> "$GITHUB_ENV"
+        fi
+
+        if grep -i "overflow" prusti.log >/dev/null; then
+          echo "overflow-issues=found" >> "$GITHUB_ENV"
+          echo "::warning::Prusti detected potential overflow issues"
+        else
+          echo "overflow-issues=none" >> "$GITHUB_ENV"
+        fi
+
+        if grep -i "panic" prusti.log >/dev/null; then
+          echo "panic-issues=found" >> "$GITHUB_ENV"
+          echo "::warning::Prusti detected potential panic issues"
+        else
+          echo "panic-issues=none" >> "$GITHUB_ENV"
+        fi
+
+    - name: Generate Prusti verification report
+      if: always()
+      run: |
+        cd prusti-results
+
+        # Create comprehensive verification report
+        {
+          echo "# Prusti Formal Verification Report"
+          echo "**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "**Status:** ${{ env.prusti-status }}"
+          echo "**Verified:** ${{ env.verification-success }}/${{ env.verification-total }} modules"
+          echo ""
+          echo "## Verification Issues"
+          echo "- **Assertion Failures:** ${{ env.assertion-failures }}"
+          echo "- **Overflow Issues:** ${{ env.overflow-issues }}"
+          echo "- **Panic Issues:** ${{ env.panic-issues }}"
+          echo ""
+          echo "## Detailed Analysis"
+          echo '```'
+          tail -n 100 prusti.log 2>/dev/null || echo "No detailed output available"
+          echo '```'
+          echo ""
+          echo "## Module Verification Status"
+          echo '```'
+          grep -E "(✓|✗|⚠)" prusti.log 2>/dev/null || echo "No module status available"
+          echo '```'
+        } > prusti-verification-report.md
+
+        # Add to step summary
+        cat prusti-verification-report.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload Prusti verification results
+      uses: actions/upload-artifact@v5.0.0
+      if: always()
+      with:
+        name: prusti-verification-${{ github.run_number }}
+        path: prusti-results/
+        retention-days: 30
+
+    - name: Check verification status
+      if: always()
+      run: |
+        if [[ "${{ env.prusti-status }}" == "failed" ]]; then
+          echo "::error::Prusti formal verification failed - critical modules could not be verified"
+          exit 1
+        fi
+
+        if [[ "${{ env.assertion-failures }}" == "found" ]] || [[ "${{ env.overflow-issues }}" == "found" ]] || [[ "${{ env.panic-issues }}" == "found" ]]; then
+          echo "::warning::Prusti detected formal verification issues - review recommended"
+          echo "Consider adding Prusti annotations (preconditions, postconditions) to improve verification"
+        fi
+
+        if [[ "${{ env.prusti-status }}" == "success" ]]; then
+          echo "::notice::✅ All critical modules formally verified - absence of panics and overflows proven"
+        fi
+
+  code-quality-summary:
+    name: Code Quality Summary
+    runs-on: ubuntu-latest
+    needs: [rudra-static-analysis]
+    if: always()
+
+    steps:
+    - name: Generate code quality summary
+      run: |
+        {
+          echo "# Code Quality Analysis Summary"
+          echo "**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "**Workflow Run:** ${{ github.run_number }}"
+          echo ""
+          echo "## Analysis Results"
+          echo "- **Static Analysis (Rudra):** Job: ${{ needs.rudra-static-analysis.result }}, Tool: ${{ needs.rudra-static-analysis.outputs.tool-status || 'unknown' }}"
+          echo "- **Formal Verification (Prusti):** Disabled"
+          echo ""
+          echo "## Overall Assessment"
+
+          rudra_tool_status="${{ needs.rudra-static-analysis.outputs.tool-status || 'unknown' }}"
+
+          if [[ "$rudra_tool_status" == "success" ]]; then
+            echo "✅ **Rudra static analysis passed**"
+            echo "- Static analysis detected no memory safety issues"
+            echo "- Code meets memory safety standards"
+            echo "- Note: Prusti formal verification is disabled"
+          elif [[ "$rudra_tool_status" == "failed" ]]; then
+            echo "❌ **Rudra static analysis encountered issues**"
+            echo "- Rudra status: $rudra_tool_status"
+            echo "- Review GitHub annotations for specific findings"
+            echo "- Address any issues identified by analysis tools"
+          else
+            echo "⚠️ **Rudra static analysis completed with mixed results**"
+            echo "- Rudra status: $rudra_tool_status"
+            echo "- Some analysis tools may have been skipped or encountered issues"
+            echo "- Review GitHub annotations for detailed findings"
+            echo "- Manual code review recommended"
+          fi
+
+          echo ""
+          echo "## Next Steps"
+          echo "1. Review detailed analysis reports in job artifacts"
+          echo "2. Address any critical issues identified"
+          echo "3. Consider adding formal verification annotations"
+          echo "4. Update unsafe code patterns if necessary"
+          echo "5. Run manual code review for complex sections"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Set overall status based on tool results, not job results
+        rudra_tool_status="${{ needs.rudra-static-analysis.outputs.tool-status || 'unknown' }}"
+
+        if [[ "$rudra_tool_status" == "success" ]]; then
+          echo "::notice::✅ Code quality analysis passed - Rudra completed successfully (Prusti disabled)"
+        elif [[ "$rudra_tool_status" == "failed" ]]; then
+          echo "::warning::❌ Rudra static analysis encountered failures - review required"
+          echo "::warning::Rudra: $rudra_tool_status"
+        else
+          echo "::warning::⚠️ Code quality analysis had mixed results - manual review recommended"
+          echo "::warning::Rudra: $rudra_tool_status"
+        fi

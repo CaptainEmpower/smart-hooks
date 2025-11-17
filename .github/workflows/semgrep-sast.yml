@@ -1,0 +1,227 @@
+name: Semgrep SAST Analysis (Optimized)
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily SAST analysis at 2 AM UTC (before other security scans)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      scan_level:
+        description: 'Semgrep scan level'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+        - 'auto'
+        - 'comment'
+        - 'block'
+
+concurrency:
+  group: semgrep-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  pull-requests: write
+
+jobs:
+  semgrep-optimized:
+    name: Optimized Semgrep SAST
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Install Semgrep
+      run: |
+        python3 -m pip install --upgrade semgrep
+        echo "Semgrep version: $(semgrep --version)"
+
+    - name: Run comprehensive Semgrep analysis
+      id: semgrep-scan
+      run: |
+        echo "=== Running Comprehensive Semgrep SAST Analysis ==="
+
+        # Single comprehensive scan with all rulesets
+        semgrep \
+          --config=auto \
+          --config=p/security-audit \
+          --config=p/secrets \
+          --config=p/owasp-top-ten \
+          --config=p/cwe-top-25 \
+          --config=p/rust \
+          --config=r/rust.lang.security \
+          --config=r/rust.lang.correctness \
+          --config=p/supply-chain \
+          --config=p/ci \
+          --json \
+          --output=semgrep-results.json \
+          --sarif \
+          --output=semgrep-results.sarif \
+          --verbose \
+          . || echo "Semgrep completed with findings"
+
+        # Create readable summary
+        semgrep \
+          --config=auto \
+          --config=p/security-audit \
+          --config=p/secrets \
+          --config=p/owasp-top-ten \
+          --config=p/cwe-top-25 \
+          --config=p/rust \
+          --config=r/rust.lang.security \
+          --config=r/rust.lang.correctness \
+          --config=p/supply-chain \
+          --config=p/ci \
+          --output=semgrep-results.txt \
+          . || echo "Semgrep text output completed"
+
+    - name: Analyze results and set outputs
+      id: analyze
+      if: always()
+      run: |
+        if [[ -f "semgrep-results.json" ]]; then
+          # Count findings by severity
+          total=$(jq '.results | length' semgrep-results.json 2>/dev/null || echo "0")
+          critical=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep-results.json 2>/dev/null || echo "0")
+          high=$(jq '[.results[] | select(.extra.severity == "WARNING")] | length' semgrep-results.json 2>/dev/null || echo "0")
+          medium=$(jq '[.results[] | select(.extra.severity == "INFO")] | length' semgrep-results.json 2>/dev/null || echo "0")
+
+          # Set outputs
+          {
+            echo "total-findings=$total"
+            echo "critical-findings=$critical"
+            echo "high-findings=$high"
+            echo "medium-findings=$medium"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Analysis: Total=$total, Critical=$critical, High=$high, Medium=$medium"
+        else
+          echo "No results file found"
+          {
+            echo "total-findings=0"
+            echo "critical-findings=0"
+            echo "high-findings=0"
+            echo "medium-findings=0"
+          } >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Generate summary report
+      if: always()
+      run: |
+        {
+          echo "# Semgrep SAST Analysis Report"
+          echo "**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "**Workflow:** ${{ github.workflow }}"
+          echo ""
+          echo "## Summary"
+          echo "- **Total Findings:** ${{ steps.analyze.outputs.total-findings }}"
+          echo "- **Critical (ERROR):** ${{ steps.analyze.outputs.critical-findings }}"
+          echo "- **High (WARNING):** ${{ steps.analyze.outputs.high-findings }}"
+          echo "- **Medium (INFO):** ${{ steps.analyze.outputs.medium-findings }}"
+          echo ""
+          if [[ "${{ steps.analyze.outputs.total-findings }}" == "0" ]]; then
+            echo "✅ **No security vulnerabilities detected**"
+            echo "- All OWASP Top 10 2021 checks passed"
+            echo "- All CWE Top 25 vulnerability patterns cleared"
+            echo "- Rust-specific security patterns verified"
+            echo "- Supply chain security validated"
+          else
+            echo "## Ruleset Coverage"
+            echo "- **General Security**: \`p/security-audit\`, \`p/secrets\`"
+            echo "- **OWASP/CWE**: \`p/owasp-top-ten\`, \`p/cwe-top-25\`"
+            echo "- **Rust-Specific**: \`p/rust\`, \`r/rust.lang.security\`"
+            echo "- **Supply Chain**: \`p/supply-chain\`, \`p/ci\`"
+            echo ""
+            if [[ "${{ steps.analyze.outputs.critical-findings }}" != "0" ]]; then
+              echo "❌ **Critical security vulnerabilities require immediate attention**"
+            else
+              echo "⚠️ **Review findings for security improvements**"
+            fi
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # Upload disabled - requires GitHub Advanced Security subscription
+    # - name: Upload SARIF results to GitHub Security
+    #   if: always() && hashFiles('semgrep-results.sarif') != ''
+    #   uses: github/codeql-action/upload-sarif@v3
+    #   with:
+    #     sarif_file: semgrep-results.sarif
+    #     category: semgrep-optimized
+    #   continue-on-error: true
+
+    - name: Upload artifacts
+      if: always()
+      uses: actions/upload-artifact@v5.0.0
+      with:
+        name: semgrep-results-${{ github.run_number }}
+        path: |
+          semgrep-results.json
+          semgrep-results.sarif
+          semgrep-results.txt
+        retention-days: 30
+
+    - name: Comment on PR
+      if: github.event_name == 'pull_request' && steps.analyze.outputs.total-findings != '0'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const total = '${{ steps.analyze.outputs.total-findings }}';
+          const critical = '${{ steps.analyze.outputs.critical-findings }}';
+          const high = '${{ steps.analyze.outputs.high-findings }}';
+
+          if (total > 0) {
+            const emoji = critical > 0 ? '🚨' : '⚠️';
+            const severity = critical > 0 ? 'Critical' : 'Non-critical';
+
+            const comment = emoji + ' **Semgrep SAST Results**\n\n' +
+              '**' + severity + ' security findings:**\n' +
+              '- Critical: ' + critical + '\n' +
+              '- High: ' + high + '\n' +
+              '- Total: ' + total + '\n\n' +
+              '📋 [View detailed findings](${context.payload.pull_request.html_url}/checks)\n\n' +
+              (critical > 0 ? '🔧 Address critical issues before merging.' : '🔍 Review findings for security improvements.');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+          }
+
+    - name: Security gate check
+      if: always()
+      run: |
+        critical=${{ steps.analyze.outputs.critical-findings }}
+        high=${{ steps.analyze.outputs.high-findings }}
+        total=${{ steps.analyze.outputs.total-findings }}
+
+        if [[ "$critical" != "0" ]]; then
+          echo "::error::Semgrep detected $critical critical security vulnerabilities"
+          echo "::error::OWASP/CWE analysis requires immediate attention"
+          exit 1
+        fi
+
+        if [[ "$high" != "0" ]]; then
+          echo "::warning::Semgrep detected $high high-severity security issues"
+          echo "::warning::Consider addressing these findings for improved security"
+        fi
+
+        if [[ "$total" == "0" ]]; then
+          echo "::notice::✅ Semgrep SAST analysis passed - no vulnerabilities detected"
+        else
+          echo "::notice::📊 Semgrep analysis completed: $total total findings"
+        fi

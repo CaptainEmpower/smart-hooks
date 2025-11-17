@@ -1,0 +1,151 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: false
+        default: 'standard'
+        type: choice
+        options:
+        - 'standard'
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: info
+  SMART_HOOKS_TEST_MODE: standard
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: unit-tests
+        install-system-deps: 'true'
+
+    - name: Run all unit tests
+      timeout-minutes: 8
+      run: |
+        # Run all unit tests (library tests) in parallel for better performance
+        # This includes fast_export, id_translation, strategy, and other module tests
+        cargo test --lib --release
+
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: integration-tests
+        install-system-deps: 'true'
+
+    - name: Setup tmpfs for performance
+      run: |
+        sudo mkdir -p /tmp/smart-hooks-tests
+        sudo mount -t tmpfs -o size=1G tmpfs /tmp/smart-hooks-tests
+        echo "SMART_HOOKS_USE_TMPFS=1" >> "$GITHUB_ENV"
+        echo "TMPFS_BASE=/tmp/smart-hooks-tests" >> "$GITHUB_ENV"
+
+    - name: Run all integration tests
+      timeout-minutes: 10
+      env:
+        SMART_HOOKS_TEST_MODE: 1
+        TEST_PARALLEL_SHARDS: 2
+      run: |
+        # Run integration tests
+        echo "=== Integration Tests ==="
+        cargo test --test "*" --release
+        
+        echo "Integration tests completed successfully!"
+
+    - name: Cleanup tmpfs
+      if: always()
+      run: |
+        sudo umount /tmp/smart-hooks-tests || true
+        sudo rm -rf /tmp/smart-hooks-tests || true
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    if: always()
+
+    steps:
+    - name: Generate test summary
+      run: |
+        {
+          echo "## Test Results Summary"
+          echo "**Date:** $(date -u +%Y-%m-%d\ %H:%M:%S\ UTC)"
+          echo "**Workflow Run:** ${{ github.run_id }}"
+          echo "**Commit:** ${{ github.sha }}"
+          echo "**Test Type:** ${{ github.event.inputs.test_type || 'standard' }}"
+          echo ""
+          echo "### Test Results"
+          echo "- **Unit Tests:** ${{ needs.unit-tests.result }}"
+          echo "- **Integration Tests:** ${{ needs.integration-tests.result }}"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Calculate overall health
+        FAILED_JOBS=0
+        SKIPPED_JOBS=0
+
+        for result in "${{ needs.unit-tests.result }}" "${{ needs.integration-tests.result }}"; do
+          case "$result" in
+            "failure") FAILED_JOBS=$((FAILED_JOBS + 1)) ;;
+            "skipped") SKIPPED_JOBS=$((SKIPPED_JOBS + 1)) ;;
+          esac
+        done
+
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$FAILED_JOBS" -eq 0 ]; then
+          if [ "$SKIPPED_JOBS" -gt 0 ]; then
+            echo "✅ **All executed tests passed!** ($SKIPPED_JOBS jobs skipped based on configuration)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🎉 **All tests passed!** The build is healthy." >> "$GITHUB_STEP_SUMMARY"
+          fi
+        else
+          echo "❌ **$FAILED_JOBS test job(s) failed.** Please review and fix." >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        {
+          echo ""
+          echo "### Next Steps"
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$FAILED_JOBS" -eq 0 ]; then
+          {
+            echo "- ✅ Ready for merge (if this is a PR)"
+            echo "- ✅ Safe to deploy (if this is main branch)"
+          } >> "$GITHUB_STEP_SUMMARY"
+        else
+          {
+            echo "- 🔍 Investigate failing tests"
+            echo "- 🔧 Fix issues before proceeding"
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi

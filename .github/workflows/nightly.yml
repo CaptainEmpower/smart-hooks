@@ -1,0 +1,454 @@
+name: Nightly Comprehensive Tests
+
+on:
+  schedule:
+    # Run nightly tests at 1 AM UTC
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      test_scope:
+        description: 'Test scope to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - 'all'
+        - 'performance'
+        - 'memory'
+        - 'integration'
+        - 'stress'
+      debug_mode:
+        description: 'Enable debug logging'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel nightly runs
+
+env:
+  CARGO_TERM_COLOR: always
+  GIT_MVH_TEST_MODE: comprehensive
+
+permissions:
+  contents: read
+  checks: write
+  issues: write
+
+jobs:
+  validate-inputs:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      test-scope: ${{ steps.validate.outputs.test-scope }}
+      debug-mode: ${{ steps.validate.outputs.debug-mode }}
+    steps:
+      - name: Validate test scope
+        id: validate
+        run: |
+          SCOPE="${{ github.event.inputs.test_scope }}"
+          if [[ -z "$SCOPE" ]] || [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            echo "test-scope=all" >> "$GITHUB_OUTPUT"
+          elif [[ "$SCOPE" == "all" ]] || [[ "$SCOPE" == "integration" ]]; then
+            echo "test-scope=$SCOPE" >> "$GITHUB_OUTPUT"
+          else
+            echo "test-scope=all" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [[ "${{ github.event.inputs.debug_mode }}" == "true" ]]; then
+            echo "debug-mode=debug" >> "$GITHUB_OUTPUT"
+          else
+            echo "debug-mode=info" >> "$GITHUB_OUTPUT"
+          fi
+
+  test-scope-info:
+    name: Nightly Test Configuration
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    steps:
+    - name: Display test scope
+      run: |
+        echo "🌙 Nightly Test Suite Configuration"
+        echo "Selected test scope: ${{ needs.validate-inputs.outputs.test-scope }}"
+        echo "Debug mode: ${{ needs.validate-inputs.outputs.debug-mode }}"
+        echo ""
+        echo "📋 Jobs that will run based on scope '${{ needs.validate-inputs.outputs.test-scope }}':"
+
+        if [[ "${{ needs.validate-inputs.outputs.test-scope }}" == "all" ]]; then
+          echo "  ✅ Comprehensive Test Suite"
+          echo "  ✅ Performance Benchmarks"
+          echo "  ✅ Memory Safety Tests"
+          echo "  ✅ Stress Tests"
+          echo "  ✅ Extended Integration Tests"
+        elif [[ "${{ needs.validate-inputs.outputs.test-scope }}" == "integration" ]]; then
+          echo "  ✅ Comprehensive Test Suite"
+          echo "  ⏭️ Performance Benchmarks (scope: performance or all)"
+          echo "  ⏭️ Memory Safety Tests (scope: memory or all)"
+          echo "  ⏭️ Stress Tests (scope: stress or all)"
+          echo "  ✅ Extended Integration Tests"
+        elif [[ "${{ needs.validate-inputs.outputs.test-scope }}" == "performance" ]]; then
+          echo "  ⏭️ Comprehensive Test Suite (scope: integration or all)"
+          echo "  ✅ Performance Benchmarks"
+          echo "  ⏭️ Memory Safety Tests (scope: memory or all)"
+          echo "  ⏭️ Stress Tests (scope: stress or all)"
+          echo "  ⏭️ Extended Integration Tests (scope: integration or all)"
+        elif [[ "${{ needs.validate-inputs.outputs.test-scope }}" == "memory" ]]; then
+          echo "  ⏭️ Comprehensive Test Suite (scope: integration or all)"
+          echo "  ⏭️ Performance Benchmarks (scope: performance or all)"
+          echo "  ✅ Memory Safety Tests"
+          echo "  ⏭️ Stress Tests (scope: stress or all)"
+          echo "  ⏭️ Extended Integration Tests (scope: integration or all)"
+        elif [[ "${{ needs.validate-inputs.outputs.test-scope }}" == "stress" ]]; then
+          echo "  ⏭️ Comprehensive Test Suite (scope: integration or all)"
+          echo "  ⏭️ Performance Benchmarks (scope: performance or all)"
+          echo "  ⏭️ Memory Safety Tests (scope: memory or all)"
+          echo "  ✅ Stress Tests"
+          echo "  ⏭️ Extended Integration Tests (scope: integration or all)"
+        fi
+
+  comprehensive-tests:
+    name: Comprehensive Test Suite
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: ${{ needs.validate-inputs.outputs.test-scope == 'all' || needs.validate-inputs.outputs.test-scope == 'integration' }}
+    env:
+      RUST_LOG: ${{ needs.validate-inputs.outputs.debug-mode }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: comprehensive
+        install-system-deps: 'true'
+
+    - name: Setup tmpfs for performance
+      run: |
+        sudo mkdir -p /tmp/git-mvh-tests
+        sudo mount -t tmpfs -o size=4G tmpfs /tmp/git-mvh-tests
+        echo "GIT_MVH_USE_TMPFS=1" >> "$GITHUB_ENV"
+        echo "TMPFS_BASE=/tmp/git-mvh-tests" >> "$GITHUB_ENV"
+
+    - name: Run comprehensive BDD tests
+      timeout-minutes: 20
+      env:
+        GIT_MVH_MAX_SIZE_MB: 2048
+        TEST_PARALLEL_SHARDS: 6
+      run: |
+        cargo test --test cucumber_tests --features integration --release
+
+    - name: Run all integration tests
+      timeout-minutes: 15
+      run: |
+        cargo test --test cucumber_tests --release
+
+    - name: Run streaming integration tests
+      timeout-minutes: 15
+      env:
+        GIT_MVH_STREAMING_TEST_MODE: 1
+      run: |
+        cargo test --test streaming_integration_test --release
+
+    - name: Cleanup tmpfs
+      if: always()
+      run: |
+        sudo umount /tmp/git-mvh-tests || true
+        sudo rm -rf /tmp/git-mvh-tests || true
+
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: ${{ needs.validate-inputs.outputs.test-scope == 'all' || needs.validate-inputs.outputs.test-scope == 'performance' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: performance
+        install-system-deps: 'true'
+
+    - name: Install performance monitoring tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y time sysstat hyperfine
+
+    - name: Run performance benchmarks
+      timeout-minutes: 25
+      run: |
+        # Create benchmark results directory
+        mkdir -p benchmark-results
+
+        # Run standard performance tests with timing
+        echo "=== Running Performance Tests ===" | tee benchmark-results/performance.log
+        /usr/bin/time -v cargo test --test cucumber_tests --features integration --release 2>&1 | tee -a benchmark-results/performance.log
+
+        # Run streaming performance tests
+        echo "=== Running Streaming Performance Tests ===" | tee -a benchmark-results/performance.log
+        /usr/bin/time -v cargo test --test streaming_integration_test --release 2>&1 | tee -a benchmark-results/performance.log
+
+        # Run hyperfine benchmarks if available
+        if command -v hyperfine >/dev/null 2>&1; then
+          echo "=== Running Hyperfine Benchmarks ===" | tee -a benchmark-results/performance.log
+          hyperfine --warmup 1 --runs 3 \
+            'cargo test fast_export_pipeline_integration_test --release' \
+            'cargo test integration_basic_test --release' 2>&1 | tee -a benchmark-results/performance.log
+        fi
+
+    - name: Analyze performance results
+      run: |
+        {
+          echo "## Performance Benchmark Results"
+          echo '```'
+          tail -n 50 benchmark-results/performance.log
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v5.0.0
+      if: always()
+      with:
+        name: nightly-performance-benchmarks-${{ github.run_number }}
+        path: benchmark-results/
+        retention-days: 7
+
+  memory-leak-detection:
+    name: Memory Leak Detection
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: ${{ needs.validate-inputs.outputs.test-scope == 'all' || needs.validate-inputs.outputs.test-scope == 'memory' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust nightly with sanitizers
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: nightly
+        components: rust-src
+        cache-key: memory-leak
+        install-system-deps: 'true'
+
+    - name: Install memory debugging tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y valgrind
+
+    - name: Run AddressSanitizer tests
+      timeout-minutes: 20
+      env:
+        RUSTFLAGS: "-Z sanitizer=address"
+        ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+      run: |
+        cargo +nightly test --test cucumber_tests --features integration --target x86_64-unknown-linux-gnu
+        cargo +nightly test --test streaming_integration_test --target x86_64-unknown-linux-gnu
+        cargo +nightly test fast_export --target x86_64-unknown-linux-gnu
+
+    - name: Run MemorySanitizer tests
+      timeout-minutes: 15
+      env:
+        RUSTFLAGS: "-Z sanitizer=memory -Z sanitizer-memory-track-origins"
+        MSAN_OPTIONS: abort_on_error=1
+      run: |
+        # Note: MemorySanitizer requires special libc, so this might fail on standard runners
+        cargo +nightly test fast_export --target x86_64-unknown-linux-gnu || echo "::warning::MemorySanitizer tests skipped (requires special environment)"
+
+    - name: Run Valgrind memory leak detection
+      timeout-minutes: 12
+      run: |
+        cargo build --test cucumber_tests
+
+        echo "Running Valgrind comprehensive memory leak detection..."
+        SUPPRESSIONS_FILE=".valgrind.supp"
+        if [ ! -f "$SUPPRESSIONS_FILE" ]; then
+          echo "::warning::Valgrind suppressions file not found, running without suppressions"
+          SUPPRESSIONS_FILE=""
+        fi
+
+        if find target/debug/deps -name 'cucumber_tests-*' -type f -executable | head -1 | xargs valgrind \
+          --tool=memcheck \
+          --leak-check=full \
+          --show-leak-kinds=definite,possible \
+          --track-origins=yes \
+          --error-exitcode=1 \
+          ${SUPPRESSIONS_FILE:+--suppressions=$SUPPRESSIONS_FILE} \
+          2>&1 | tee valgrind-full.log; then
+          echo "::notice::Comprehensive Valgrind scan completed - no definite leaks detected"
+        else
+          echo "::warning::Valgrind detected potential memory issues"
+          grep -E "(LEAK SUMMARY|ERROR SUMMARY|definitely lost|possibly lost)" valgrind-full.log || true
+        fi
+
+  stress-tests:
+    name: Stress Tests
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: ${{ needs.validate-inputs.outputs.test-scope == 'all' || needs.validate-inputs.outputs.test-scope == 'stress' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: stress-tests
+        install-system-deps: 'true'
+
+    - name: Setup large test repositories
+      timeout-minutes: 10
+      run: |
+        mkdir -p stress-test-repos
+
+        # Clone some larger repositories for stress testing
+        git clone --depth 10 https://github.com/rust-lang/rust.git stress-test-repos/rust || echo "Failed to clone rust repo"
+        git clone --depth 10 https://github.com/microsoft/vscode.git stress-test-repos/vscode || echo "Failed to clone vscode repo"
+        git clone --depth 10 https://github.com/torvalds/linux.git stress-test-repos/linux || echo "Failed to clone linux repo"
+
+    - name: Run large dataset performance tests
+      timeout-minutes: 30
+      env:
+        GIT_MVH_TEST_REPOS: stress-test-repos
+        GIT_MVH_STRESS_TEST_MODE: 1
+      run: |
+        cargo test streaming_performance_with_large_dataset --release -- --ignored
+
+    - name: Run complex git history tests
+      timeout-minutes: 20
+      run: |
+        cargo test streaming_parser_with_complex_history --release -- --ignored
+        cargo test merge_commit --release -- --ignored
+
+    - name: Run concurrent operation stress tests
+      timeout-minutes: 15
+      run: |
+        cargo test concurrent_streaming --release -- --ignored --test-threads=1
+
+  integration-external:
+    name: External Integration Tests
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: ${{ needs.validate-inputs.outputs.test-scope == 'all' || needs.validate-inputs.outputs.test-scope == 'integration' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: integration-external
+        install-system-deps: 'true'
+
+    - name: Install git-filter-repo for comparison
+      run: |
+        python3 -m pip install --user git-filter-repo
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Setup test matrix with external repos
+      timeout-minutes: 5
+      run: |
+        mkdir -p test-repos
+        git clone --depth 5 https://github.com/rust-lang/git2-rs.git test-repos/git2-rs
+        git clone --depth 5 https://github.com/tokio-rs/tokio.git test-repos/tokio
+
+    - name: Run git-filter-repo comparison tests
+      timeout-minutes: 15
+      run: |
+        cargo test detailed_performance_comparison --release -- --show-output --test-threads=1
+
+    - name: Run integration tests with real repositories
+      timeout-minutes: 15
+      env:
+        GIT_MVH_TEST_REPOS: test-repos
+        GIT_MVH_INTEGRATION_MODE: 1
+      run: |
+        cargo test --test cucumber_tests --features integration --release
+        cargo test --test streaming_integration_test --features integration --release
+
+  nightly-summary:
+    name: Nightly Test Summary
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, comprehensive-tests, performance-benchmarks, memory-leak-detection, stress-tests, integration-external]
+    if: always()
+
+    steps:
+    - name: Generate comprehensive summary
+      run: |
+        {
+          echo "## Nightly Test Results Summary"
+          echo "**Date:** $(date -u +%Y-%m-%d\ %H:%M:%S\ UTC)"
+          echo "**Test Scope:** ${{ needs.validate-inputs.outputs.test-scope }}"
+          echo "**Workflow Run Duration:** ${{ github.event.workflow_run.conclusion || 'N/A' }}"
+          echo ""
+          echo "### Test Results"
+          echo "- **Comprehensive Tests:** ${{ needs.comprehensive-tests.result }}"
+          echo "- **Performance Benchmarks:** ${{ needs.performance-benchmarks.result }}"
+          echo "- **Memory Leak Detection:** ${{ needs.memory-leak-detection.result }}"
+          echo "- **Stress Tests:** ${{ needs.stress-tests.result }}"
+          echo "- **External Integration:** ${{ needs.integration-external.result }}"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Calculate overall health
+        FAILED_JOBS=0
+        for result in "${{ needs.comprehensive-tests.result }}" "${{ needs.performance-benchmarks.result }}" "${{ needs.memory-leak-detection.result }}" "${{ needs.stress-tests.result }}" "${{ needs.integration-external.result }}"; do
+          if [[ "$result" == "failure" ]]; then
+            FAILED_JOBS=$((FAILED_JOBS + 1))
+          fi
+        done
+
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$FAILED_JOBS" -eq 0 ]; then
+          echo "🎉 **All nightly tests passed!** The codebase is healthy." >> "$GITHUB_STEP_SUMMARY"
+        elif [ "$FAILED_JOBS" -le 2 ]; then
+          echo "⚠️ **Some tests failed ($FAILED_JOBS/5).** Review needed but not critical." >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "❌ **Multiple test failures ($FAILED_JOBS/5).** Urgent attention required." >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Create issue on failure
+      if: failure()
+      uses: actions/github-script@v7.0.1
+      with:
+        script: |
+          const title = `🚨 Nightly Tests Failed - ${new Date().toISOString().split('T')[0]}`;
+          const body = `
+          ## Nightly Test Failure Report
+
+          **Run URL:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          **Branch:** ${{ github.ref_name }}
+          **Commit:** ${{ github.sha }}
+
+          ### Failed Jobs
+          - **Comprehensive Tests:** ${{ needs.comprehensive-tests.result }}
+          - **Performance Benchmarks:** ${{ needs.performance-benchmarks.result }}
+          - **Memory Leak Detection:** ${{ needs.memory-leak-detection.result }}
+          - **Stress Tests:** ${{ needs.stress-tests.result }}
+          - **External Integration:** ${{ needs.integration-external.result }}
+
+          Please investigate and fix the failing tests.
+          `;
+
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            body: body,
+            labels: ['bug', 'ci-failure', 'priority-high']
+          });

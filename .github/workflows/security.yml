@@ -1,0 +1,197 @@
+name: Security Scans
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      fail_on_vulnerabilities:
+        description: 'Fail build on vulnerabilities'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  security-analysis:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      secrets-found: ${{ steps.detect-secrets-scan.outputs.detect-secrets-status }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        components: rustfmt
+        cache-key: security-scans
+        install-cargo-audit: 'false'
+        install-system-deps: 'false'
+
+    - name: Validate input
+      id: validate
+      run: |
+        if [[ "${{ github.event.inputs.fail_on_vulnerabilities }}" == "false" ]]; then
+          echo "fail=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "fail=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Run Trivy security scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'json'
+        output: 'trivy-security.json'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        exit-code: '0'
+
+    - name: Install detect-secrets
+      run: |
+        pip install detect-secrets
+
+    - name: Run detect-secrets scan
+      id: detect-secrets-scan
+      run: |
+        echo "Running detect-secrets scan with baseline (same as pre-commit)..."
+
+        # Run detect-secrets scan using baseline (same as pre-commit)
+        if [ -f ".secrets.baseline" ]; then
+          echo "Using existing secrets baseline"
+          detect-secrets scan --baseline .secrets.baseline
+          detect_secrets_exit_code=$?
+        else
+          echo "No baseline found, creating new baseline"
+          detect-secrets scan . > .secrets.baseline
+          detect_secrets_exit_code=0
+        fi
+
+        # Count detected secrets from baseline
+        secret_count=$(jq '.results | to_entries | length' .secrets.baseline 2>/dev/null || echo "0")
+        total_secrets=$(jq '[.results[] | length] | add // 0' .secrets.baseline 2>/dev/null || echo "0")
+        echo "detect-secrets-count=$secret_count" >> "$GITHUB_OUTPUT"
+        echo "detect-secrets-total=$total_secrets" >> "$GITHUB_OUTPUT"
+
+        if [ $detect_secrets_exit_code -eq 0 ]; then
+          echo "detect-secrets-status=clean" >> "$GITHUB_OUTPUT"
+          echo "::notice::detect-secrets scan completed - no new secrets detected"
+        else
+          echo "detect-secrets-status=secrets-found" >> "$GITHUB_OUTPUT"
+          echo "::warning::detect-secrets found $total_secrets potential secrets in $secret_count files"
+        fi
+
+    - name: Security scan summary
+      if: always()
+      run: |
+        {
+          echo "## Security Scan Results"
+          echo "- **Trivy Scan:** Completed (see audit.yml workflow for detailed results)"
+          echo "- **Secrets in Baseline (detect-secrets):** ${{ steps.detect-secrets-scan.outputs.detect-secrets-total }} in ${{ steps.detect-secrets-scan.outputs.detect-secrets-count }} files"
+          echo "- **detect-secrets Status:** ${{ steps.detect-secrets-scan.outputs.detect-secrets-status }}"
+          echo "- **Tools Used:** detect-secrets, Trivy (via separate workflow)"
+          echo "- **Scan Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          echo "## Secret Detection Configuration"
+          echo "- **Pre-commit:** detect-secrets with baseline"
+          echo "- **CI:** detect-secrets + Trivy (separate workflows)"
+          echo "- **Baseline:** .secrets.baseline (shared between pre-commit and CI)"
+          echo "- **Coverage:** AWS keys, GitHub tokens, private keys, high entropy strings, and more"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "${{ steps.detect-secrets-scan.outputs.detect-secrets-status }}" == "secrets-found" ]; then
+          echo "- **Status:** ⚠️ Security issues detected" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "- **Status:** ✅ No security issues found" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+  # dependency-review:
+  #   name: Dependency Review
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'pull_request'
+  #
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v5
+  #
+  #   - name: Dependency Review
+  #     uses: actions/dependency-review-action@v4.8.1
+  #     with:
+  #       fail-on-severity: moderate
+  #       allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC
+  #   # Commented out: Requires GitHub Advanced Security (not available without code security plan)
+
+  supply-chain-security:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: supply-chain
+        install-system-deps: 'false'
+
+    - name: Install nightly toolchain for cargo-udeps
+      run: |
+        # cargo-udeps requires nightly toolchain
+        rustup toolchain install nightly --no-self-update
+        rustup component add rustc-dev --toolchain nightly
+
+    - name: Check for unused dependencies
+      run: |
+        # Install cargo-udeps if not already present
+        if ! command -v cargo-udeps &> /dev/null; then
+          cargo install cargo-udeps --quiet
+        else
+          echo "cargo-udeps already installed, skipping installation"
+        fi
+        cargo +nightly udeps
+
+    - name: License compliance check
+      run: |
+        # Install cargo-license if not already present
+        if ! command -v cargo-license &> /dev/null; then
+          cargo install cargo-license --quiet
+        else
+          echo "cargo-license already installed, skipping installation"
+        fi
+        cargo license --json > licenses.json
+
+        # Check for problematic licenses
+        if jq -r '.[].license' licenses.json | grep -E "(AGPL|GPL-2.0|GPL-3.0|Unknown)" > problematic-licenses.txt; then
+          echo "::warning::Problematic licenses found:"
+          cat problematic-licenses.txt
+        else
+          echo "::notice::All licenses are compliant"
+        fi

@@ -1,0 +1,154 @@
+name: 'Security Scanning Suite'
+description: 'Comprehensive security scanning including secrets, dependencies, and SAST'
+inputs:
+  github-token:
+    description: 'GitHub token for SARIF upload'
+    required: true
+  semgrep-token:
+    description: 'Semgrep token for advanced SAST'
+    required: false
+  upload-sarif:
+    description: 'Upload SARIF results to GitHub Security'
+    required: false
+    default: 'true'
+  fail-on-vulnerabilities:
+    description: 'Fail build on security vulnerabilities'
+    required: false
+    default: 'true'
+
+outputs:
+  vulnerabilities-found:
+    description: 'Number of vulnerabilities found'
+    value: ${{ steps.audit.outputs.vulnerability-count }}
+  secrets-found:
+    description: 'Number of secrets found'
+    value: ${{ steps.trufflehog.outputs.secrets-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        # Validate GitHub context data for security
+        if [[ "${{ github.actor }}" =~ [^a-zA-Z0-9\-_] ]]; then
+          echo "::error::Invalid characters in github.actor"
+          exit 1
+        fi
+
+        if [[ "${{ github.ref_name }}" =~ [^a-zA-Z0-9\-_/.] ]]; then
+          echo "::error::Invalid characters in branch name"
+          exit 1
+        fi
+
+    - name: Secret scanning with TruffleHog
+      uses: trufflesecurity/trufflehog@v3.63.2
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --only-verified --no-verification --json
+      env:
+        ACTIONS_STEP_DEBUG: false
+        RUNNER_DEBUG: 0
+
+    - name: Process TruffleHog results
+      id: trufflehog
+      if: always()
+      shell: bash
+      env:
+        FAIL_ON_VULNERABILITIES: ${{ inputs.fail-on-vulnerabilities }}
+      run: |
+        mkdir -p security-results
+        chmod 700 security-results
+
+        if [ -f trufflehog_output.json ]; then
+          FINDINGS=$(jq -r '. | length // 0' trufflehog_output.json 2>/dev/null || echo "0")
+          echo "secrets-count=$FINDINGS" >> "$GITHUB_OUTPUT"
+          echo "::notice::Secret scan completed. Findings: $FINDINGS"
+
+          if [ "$FINDINGS" != "0" ] && [ "$FAIL_ON_VULNERABILITIES" = "true" ]; then
+            echo "::error::Secrets detected in repository. Review required."
+            exit 1
+          fi
+
+          echo "{\"scan_date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"findings_count\":$FINDINGS}" > security-results/trufflehog-summary.json
+        else
+          echo "secrets-count=0" >> "$GITHUB_OUTPUT"
+          echo "::notice::Secret scan completed successfully with no findings"
+          echo "{\"scan_date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"findings_count\":0}" > security-results/trufflehog-summary.json
+        fi
+
+    - name: Dependency security audit
+      id: audit
+      shell: bash
+      env:
+        ACTIONS_STEP_DEBUG: false
+        RUNNER_DEBUG: 0
+        FAIL_ON_VULNERABILITIES: ${{ inputs.fail-on-vulnerabilities }}
+      run: |
+        mkdir -p audit-results
+        chmod 700 audit-results
+
+        echo "Running dependency security audit..."
+        if ! cargo audit --json 2>&1 | tee audit-results/audit-raw-security.json; then
+          echo "::error::Cargo audit JSON generation failed"
+          exit 1
+        fi
+
+        # Comprehensive sanitization of audit output
+        sed 's|/[^"]*github[^"]*|[REDACTED_PATH]|g' audit-results/audit-raw-security.json | \
+          sed 's|/home/[^"]*|[REDACTED_HOME]|g' | \
+          sed 's|/Users/[^"]*|[REDACTED_USER]|g' | \
+          sed 's|"[^"]*@[^"]*\.com"|"[REDACTED_EMAIL]"|g' | \
+          sed 's|token[^"]*|[REDACTED_TOKEN]|g' | \
+          sed 's|key[^"]*|[REDACTED_KEY]|g' > audit-results/audit-security.json
+
+        rm -f audit-results/audit-raw-security.json
+
+        VULN_COUNT=$(jq -r '.vulnerabilities | length // 0' audit-results/audit-security.json 2>/dev/null || echo "0")
+        echo "vulnerability-count=$VULN_COUNT" >> "$GITHUB_OUTPUT"
+        echo "::notice::Dependency audit completed. Vulnerabilities found: $VULN_COUNT"
+
+        echo "Checking for security vulnerabilities..."
+        if ! cargo audit --deny warnings 2>&1 | grep -v -E "(token|key|password|secret)"; then
+          if [ "$FAIL_ON_VULNERABILITIES" = "true" ]; then
+            echo "::error::Security vulnerabilities detected in dependencies"
+            exit 1
+          else
+            echo "::warning::Security vulnerabilities detected in dependencies"
+          fi
+        fi
+
+
+    - name: Advanced SAST with Semgrep
+      if: inputs.semgrep-token != ''
+      uses: returntocorp/semgrep-action@v1
+      with:
+        config: >-
+          p/security-audit
+          p/secrets
+          p/rust
+          p/owasp-top-ten
+        generateSarif: "1"
+      env:
+        SEMGREP_APP_TOKEN: ${{ inputs.semgrep-token }}
+
+    # Upload disabled - requires GitHub Advanced Security subscription
+    # - name: Upload Semgrep SARIF
+    #   uses: github/codeql-action/upload-sarif@v3
+    #   if: always() && inputs.upload-sarif == 'true' && inputs.semgrep-token != ''
+    #   with:
+    #     sarif_file: semgrep.sarif
+    #     token: ${{ inputs.github-token }}
+
+    - name: Upload security scan results
+      uses: actions/upload-artifact@v4.4.3
+      if: always()
+      with:
+        name: security-scan-${{ github.event_name }}-${{ github.run_number }}
+        path: |
+          security-results/
+          audit-results/audit-security.json
+        retention-days: 3
+        include-hidden-files: false

@@ -1,0 +1,273 @@
+name: Weekly Security Deep Scan
+
+on:
+  schedule:
+    # Sundays at 4 AM UTC (low activity time)
+    - cron: '0 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      scan_full_history:
+        description: 'Scan full repository history (slower)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+      commit_range_days:
+        description: 'Days of commit history to scan'
+        required: false
+        default: '7'
+        type: choice
+        options:
+        - '7'
+        - '14'
+        - '30'
+        - '90'
+
+concurrency:
+  group: weekly-security-scan-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  trufflehog-deep-scan:
+    name: TruffleHog Secret History Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        # Fetch sufficient history for weekly scan
+        fetch-depth: 0
+
+    - name: Calculate scan parameters
+      id: scan-params
+      run: |
+        # Determine scan range based on inputs
+        if [[ "${{ github.event.inputs.scan_full_history }}" == "true" ]]; then
+          echo "scan-type=full-history" >> "$GITHUB_OUTPUT"
+          echo "extra-args=--only-verified --json --fail" >> "$GITHUB_OUTPUT"
+          echo "scan-description=Full repository history scan" >> "$GITHUB_OUTPUT"
+        else
+          # Calculate commit range for time-based scan
+          days="${{ github.event.inputs.commit_range_days || '7' }}"
+
+          # Get commit hash from N days ago
+          since_commit=$(git log --format="%H" --since="${days} days ago" | tail -1)
+
+          if [[ -n "$since_commit" ]]; then
+            echo "scan-type=time-range" >> "$GITHUB_OUTPUT"
+            echo "since-commit=$since_commit" >> "$GITHUB_OUTPUT"
+            echo "extra-args=--only-verified --json --fail --since-commit=${since_commit}" >> "$GITHUB_OUTPUT"
+            echo "scan-description=Last ${days} days commit history scan" >> "$GITHUB_OUTPUT"
+          else
+            # Fallback to last 50 commits if no time-based commits found
+            echo "scan-type=commit-count" >> "$GITHUB_OUTPUT"
+            echo "extra-args=--only-verified --json --fail" >> "$GITHUB_OUTPUT"
+            echo "scan-description=Recent commits scan (repository too new for time-based)" >> "$GITHUB_OUTPUT"
+          fi
+        fi
+
+        echo "scan-date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+    - name: Run TruffleHog deep scan
+      uses: trufflesecurity/trufflehog@main
+      id: trufflehog-scan
+      continue-on-error: true
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: ${{ steps.scan-params.outputs.extra-args }}
+
+    - name: Create scan results directory
+      run: |
+        mkdir -p trufflehog-results
+        echo "TRUFFLEHOG_RESULTS_DIR=$(pwd)/trufflehog-results" >> "$GITHUB_ENV"
+
+    - name: Process TruffleHog results
+      if: always()
+      run: |
+        # Analyze scan results and create summary
+        cd trufflehog-results
+
+        # Determine scan status
+        if [[ "${{ steps.trufflehog-scan.outcome }}" == "success" ]]; then
+          echo "trufflehog-status=clean" >> "$GITHUB_ENV"
+          echo "verified-secrets=0" >> "$GITHUB_ENV"
+          echo "total-findings=0" >> "$GITHUB_ENV"
+          scan_result="✅ No verified secrets found"
+        elif [[ "${{ steps.trufflehog-scan.outcome }}" == "failure" ]]; then
+          echo "trufflehog-status=secrets-found" >> "$GITHUB_ENV"
+
+          # Count findings if JSON output exists (TruffleHog creates trufflehog_output.json)
+          if [[ -f "../trufflehog_output.json" ]]; then
+            # Parse JSON output to count verified secrets
+            verified_count=$(jq '[.[] | select(.Verified == true)] | length' ../trufflehog_output.json 2>/dev/null || echo "0")
+            total_count=$(jq 'length' ../trufflehog_output.json 2>/dev/null || echo "0")
+
+            echo "verified-secrets=$verified_count" >> "$GITHUB_ENV"
+            echo "total-findings=$total_count" >> "$GITHUB_ENV"
+
+            scan_result="🚨 Found $verified_count verified secrets ($total_count total findings)"
+          else
+            echo "verified-secrets=unknown" >> "$GITHUB_ENV"
+            echo "total-findings=unknown" >> "$GITHUB_ENV"
+            scan_result="🚨 Secrets detected (details in annotations)"
+          fi
+        else
+          echo "trufflehog-status=error" >> "$GITHUB_ENV"
+          echo "verified-secrets=unknown" >> "$GITHUB_ENV"
+          echo "total-findings=unknown" >> "$GITHUB_ENV"
+          scan_result="⚠️ Scan encountered errors"
+        fi
+
+        # Create scan log
+        {
+          echo "=== TruffleHog Weekly Deep Scan Results ==="
+          echo "Scan Date: ${{ steps.scan-params.outputs.scan-date }}"
+          echo "Scan Type: ${{ steps.scan-params.outputs.scan-description }}"
+          echo "Status: $scan_result"
+          echo "Outcome: ${{ steps.trufflehog-scan.outcome }}"
+          if [[ -n "${{ steps.scan-params.outputs.since-commit }}" ]]; then
+            echo "Since Commit: ${{ steps.scan-params.outputs.since-commit }}"
+          fi
+          echo ""
+          echo "TruffleHog provides detailed findings through GitHub annotations."
+          echo "Check the 'Annotations' tab for specific secret locations and types."
+        } > trufflehog-scan.log
+
+        # Set appropriate log levels
+        if [[ "${{ env.trufflehog-status }}" == "secrets-found" ]]; then
+          echo "::error::TruffleHog found ${{ env.verified-secrets }} verified secrets in git history"
+        elif [[ "${{ env.trufflehog-status }}" == "clean" ]]; then
+          echo "::notice::✅ TruffleHog weekly scan completed - no verified secrets found"
+        else
+          echo "::warning::TruffleHog scan completed with errors - check logs for details"
+        fi
+
+    - name: Generate weekly security report
+      if: always()
+      run: |
+        cd trufflehog-results
+
+        # Create comprehensive weekly report
+        {
+          echo "# Weekly Security Deep Scan Report"
+          echo "**Date:** ${{ steps.scan-params.outputs.scan-date }}"
+          echo "**Scan Type:** ${{ steps.scan-params.outputs.scan-description }}"
+          echo "**Status:** ${{ env.trufflehog-status }}"
+          echo ""
+          echo "## Scan Results Summary"
+          echo "| Metric | Count |"
+          echo "|--------|-------|"
+          echo "| **Verified Secrets** | ${{ env.verified-secrets }} |"
+          echo "| **Total Findings** | ${{ env.total-findings }} |"
+          echo "| **Scan Status** | ${{ env.trufflehog-status }} |"
+          echo ""
+
+          if [[ "${{ env.trufflehog-status }}" == "secrets-found" ]]; then
+            echo "## ⚠️ Action Required"
+            echo "**Verified secrets detected in git history!**"
+            echo ""
+            echo "### Immediate Steps:"
+            echo "1. 🔄 **Rotate all detected secrets immediately**"
+            echo "2. 🔍 **Review TruffleHog annotations for exact locations**"
+            echo "3. 📧 **Notify security team and secret owners**"
+            echo "4. 🧹 **Clean up git history if possible (careful with public repos)**"
+            echo "5. 🛡️ **Update secret management processes to prevent recurrence**"
+            echo ""
+            echo "### Secret Detection Details"
+            echo "Check the **Annotations** tab in this workflow run for:"
+            echo "- Exact commit hashes containing secrets"
+            echo "- File paths and line numbers"
+            echo "- Secret types (API keys, tokens, etc.)"
+            echo "- Confidence levels and verification status"
+          elif [[ "${{ env.trufflehog-status }}" == "clean" ]]; then
+            echo "## ✅ All Clear"
+            echo "No verified secrets found in the scanned commit history."
+            echo ""
+            echo "### Security Posture"
+            echo "- Git history appears clean of leaked credentials"
+            echo "- Continue following secure development practices"
+            echo "- Regular weekly scans help maintain security hygiene"
+          else
+            echo "## ⚠️ Scan Issues"
+            echo "The scan encountered errors or could not complete fully."
+            echo ""
+            echo "### Troubleshooting"
+            echo "- Check workflow logs for specific error messages"
+            echo "- Verify repository access and permissions"
+            echo "- Consider re-running the scan manually"
+          fi
+
+          echo ""
+          echo "## Scan Configuration"
+          echo "- **Tool:** TruffleHog OSS (trufflesecurity/trufflehog)"
+          echo "- **Mode:** Verified secrets only (reduces false positives)"
+          echo "- **Frequency:** Weekly (Sundays 4 AM UTC)"
+          echo "- **Coverage:** Git commit history analysis"
+          echo "- **Integration:** GitHub Security tab (when applicable)"
+          echo ""
+          echo "## Complementary Security"
+          echo "This weekly deep scan complements daily security measures:"
+          echo "- **Pre-commit:** detect-secrets baseline scanning"
+          echo "- **Daily:** Trivy vulnerability scanning (audit.yml)"
+          echo "- **CI:** detect-secrets in security.yml"
+          echo "- **Weekly:** TruffleHog deep history analysis (this workflow)"
+          echo ""
+          echo "## Next Weekly Scan"
+          echo "**Scheduled:** $(date -d '+7 days' -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "**Manual:** Use 'Run workflow' button with custom parameters"
+        } > weekly-security-report.md
+
+        # Add to step summary
+        cat weekly-security-report.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload TruffleHog results
+      uses: actions/upload-artifact@v5.0.0
+      if: always()
+      with:
+        name: trufflehog-weekly-scan-${{ github.run_number }}
+        path: |
+          trufflehog-results/
+          trufflehog_output.json
+        retention-days: 90
+
+    - name: Security alert handling
+      if: always()
+      run: |
+        if [[ "${{ env.trufflehog-status }}" == "secrets-found" ]]; then
+          echo "::error::🚨 SECURITY ALERT: Verified secrets found in git history"
+          echo "::error::Immediate action required - rotate affected credentials"
+          echo "::error::Review TruffleHog annotations for exact locations and commit details"
+
+          # Fail the workflow on verified secrets (configurable via inputs in future)
+          if [[ "${{ github.event.inputs.scan_full_history }}" != "true" ]]; then
+            echo "::error::Weekly security scan failing due to verified secrets in recent history"
+            exit 1
+          else
+            echo "::warning::Full history scan - review all findings but not failing workflow"
+          fi
+        elif [[ "${{ env.trufflehog-status }}" == "clean" ]]; then
+          echo "::notice::✅ Weekly security deep scan passed - no verified secrets detected"
+        elif [[ "${{ env.trufflehog-status }}" == "error" ]]; then
+          echo "::warning::TruffleHog scan encountered errors - manual review recommended"
+        fi
+
+    - name: Update security metrics
+      if: always() && env.trufflehog-status == 'clean'
+      run: |
+        # Success metrics for security dashboards
+        echo "::notice::Security metric - Weekly TruffleHog scan: PASSED"
+        echo "::notice::Last clean scan: ${{ steps.scan-params.outputs.scan-date }}"
+        echo "::notice::Scan coverage: ${{ steps.scan-params.outputs.scan-description }}"

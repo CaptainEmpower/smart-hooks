@@ -1,0 +1,452 @@
+name: Pre-Release Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened ]
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: 'Source branch for merge validation'
+        required: false
+        default: 'develop'
+        type: string
+      run_full_suite:
+        description: 'Run full test suite on all platforms'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+concurrency:
+  group: release-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  pre-release-validation:
+    name: Pre-Release Validation
+    runs-on: ubuntu-latest
+    # Only run for develop→main PRs or manual dispatch
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'develop') || github.event.inputs.source_branch != ''
+    outputs:
+      should-run-full-suite: ${{ steps.validation.outputs.run-full-suite }}
+      pr-source-branch: ${{ steps.validation.outputs.source-branch }}
+
+    steps:
+    - name: Validate release conditions
+      id: validation
+      env:
+        HEAD_REF: ${{ github.head_ref }}
+      run: |
+        # Validate source branch input
+        SOURCE_BRANCH="${{ github.event.inputs.source_branch }}"
+        if [[ -z "$SOURCE_BRANCH" ]]; then
+          SOURCE_BRANCH="develop"
+        elif [[ "$SOURCE_BRANCH" != "develop" && "$SOURCE_BRANCH" != "main" && "$SOURCE_BRANCH" != "hotfix" && "$SOURCE_BRANCH" != "release" ]]; then
+          echo "::warning::Invalid source branch '$SOURCE_BRANCH', defaulting to 'develop'"
+          SOURCE_BRANCH="develop"
+        fi
+
+        # Validate full suite input
+        FULL_SUITE="${{ github.event.inputs.run_full_suite }}"
+        if [[ "$FULL_SUITE" != "false" ]]; then
+          FULL_SUITE="true"
+        fi
+
+        if [[ "${{ github.event_name }}" == "pull_request" && "$HEAD_REF" == "develop" ]]; then
+          echo "run-full-suite=true" >> "$GITHUB_OUTPUT"
+          echo "source-branch=develop" >> "$GITHUB_OUTPUT"
+          echo "::notice::Detected develop→main PR - running full release validation"
+        elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "run-full-suite=$FULL_SUITE" >> "$GITHUB_OUTPUT"
+          echo "source-branch=$SOURCE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "::notice::Manual release validation triggered for branch: $SOURCE_BRANCH"
+        else
+          echo "run-full-suite=false" >> "$GITHUB_OUTPUT"
+          echo "source-branch=unknown" >> "$GITHUB_OUTPUT"
+          echo "::notice::Skipping release validation - not a develop→main PR"
+          exit 0
+        fi
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: release-validation
+        install-cargo-audit: 'false'
+
+    - name: Validate release readiness
+      run: |
+        echo "=== Release Readiness Checklist ==="
+
+        # Check for version consistency
+        if grep -q "version.*=" Cargo.toml; then
+          VERSION=$(grep "version.*=" Cargo.toml | head -1 | cut -d'"' -f2)
+          echo "✓ Project version: $VERSION"
+        else
+          echo "⚠️ Could not determine project version"
+        fi
+
+        # Check for changelog updates
+        if [ -f CHANGELOG.md ]; then
+          if git diff --name-only HEAD^ HEAD | grep -q CHANGELOG.md; then
+            echo "✓ Changelog updated in this PR"
+          else
+            echo "⚠️ Changelog not updated in this PR"
+          fi
+        fi
+
+        # Check for breaking changes in API
+        echo "ℹ️ Checking for potential breaking changes..."
+        if git diff --name-only HEAD^ HEAD | grep -E "(lib\.rs|types\.rs|error\.rs)" | head -5; then
+          echo "⚠️ Core API files modified - review for breaking changes"
+        else
+          echo "✓ No core API files modified"
+        fi
+
+  release-tests-skipped:
+    name: Release Tests (Skipped - Not Release Branch)
+    runs-on: ubuntu-latest
+    needs: pre-release-validation
+    if: needs.pre-release-validation.outputs.should-run-full-suite != 'true'
+    steps:
+    - name: Skip explanation
+      run: |
+        echo "ℹ️ Full release test suite skipped"
+        echo "Comprehensive release testing is only performed for:"
+        echo "  • Pushes to main/develop branches"
+        echo "  • Pull requests targeting main from develop"
+        echo "  • Release tag creation"
+        echo "  • Manual workflow dispatch"
+        echo ""
+        echo "The following test jobs were skipped:"
+        echo "  • Cross-platform release tests (Ubuntu/macOS/Windows)"
+        echo "  • Property-based tests with extended configuration"
+        echo "  • Release security validation"
+        echo "  • Performance benchmarks"
+        echo "  • SBOM generation and supply chain analysis"
+        echo ""
+        echo "This PR will still run standard CI checks (lint, unit tests, basic integration tests)."
+
+  release-cross-platform-tests:
+    name: Release Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: pre-release-validation
+    if: needs.pre-release-validation.outputs.should-run-full-suite == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            test_scope: "full"
+            timeout_minutes: 15
+            parallel_shards: 4
+          - os: macos-latest
+            test_scope: "comprehensive"
+            timeout_minutes: 20
+            parallel_shards: 2
+          - os: windows-latest
+            test_scope: "comprehensive"
+            timeout_minutes: 25
+            parallel_shards: 2
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: release-${{ matrix.os }}
+        install-system-deps: 'true'
+
+    - name: Run comprehensive test suite
+      timeout-minutes: ${{ matrix.timeout_minutes }}
+      env:
+        TEST_PARALLEL_SHARDS: ${{ matrix.parallel_shards }}
+        RUST_LOG: info
+      run: |
+        echo "Running ${{ matrix.test_scope }} test suite on ${{ matrix.os }}"
+
+        # Core unit tests
+        cargo test --lib --release --quiet
+
+        if [[ "${{ matrix.test_scope }}" == "full" ]]; then
+          # Full BDD test suite (Ubuntu only)
+          cargo test --test cucumber_tests --release
+
+          # Integration tests (from integration directory only)
+          for test_file in crates/git-mvh/tests/integration/*.rs; do
+            if [ -f "$test_file" ] && [ "$(basename "$test_file")" != "fixtures.rs" ]; then
+              test_name=$(basename "$test_file" .rs)
+              cargo test --test "$test_name" --release
+            fi
+          done
+        else
+          # Comprehensive but not exhaustive (macOS/Windows)
+          cargo test --test cucumber_tests --release -- --tags="@smoke or @compatibility"
+
+          # Essential integration tests
+          cargo test integration_test --release
+          cargo test real_repo_test --release
+        fi
+
+    - name: Validate build artifacts
+      run: |
+        echo "Building release artifacts..."
+        cargo build --release --bin git-mvh
+
+        # Verify binary works
+        ./target/release/git-mvh --version || target/release/git-mvh.exe --version
+
+        echo "✓ Release binary builds and runs successfully"
+
+  property-tests:
+    name: Property-Based Tests
+    runs-on: ubuntu-latest
+    needs: pre-release-validation
+    if: needs.pre-release-validation.outputs.should-run-full-suite == 'true'
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: property-tests
+        install-cargo-audit: 'false'
+
+    - name: Run property-based tests
+      id: property-tests
+      env:
+        CARGO_TERM_COLOR: always
+        RUST_LOG: info
+        CARGO_INCREMENTAL: 0
+        CARGO_PROFILE_DEV_DEBUG: 0
+        RUST_BACKTRACE: short
+        # Allow test-specific warnings while keeping core warnings strict
+        RUSTFLAGS: -D warnings -A dead_code -A unused_imports
+        # Property test configuration
+        PROPTEST_CASES: 1000
+        PROPTEST_MAX_SHRINK_ITERS: 1000
+        PROPTEST_TIMEOUT: 60000
+      run: |
+        echo "=== Property-Based Testing Suite ==="
+        echo "Running comprehensive property tests for release validation..."
+        echo "Test cases: $PROPTEST_CASES, Max shrink iterations: $PROPTEST_MAX_SHRINK_ITERS"
+        echo ""
+
+        # Run property tests with detailed output
+        if cargo test --test property_tests --release --verbose; then
+          echo "test-result=success" >> "$GITHUB_OUTPUT"
+          echo ""
+          echo "✓ Property-based tests completed successfully"
+          echo "All invariants and properties validated for release"
+        else
+          echo "test-result=failure" >> "$GITHUB_OUTPUT"
+          echo ""
+          echo "❌ Property-based tests failed"
+          exit 1
+        fi
+
+    - name: Generate property test report
+      if: always()
+      run: |
+        {
+          echo "# Property-Based Tests Report"
+          echo "**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "**Test Cases:** $PROPTEST_CASES"
+          echo "**Configuration:** Release validation"
+          echo ""
+          if [ "${{ steps.property-tests.outputs.test-result }}" = "success" ]; then
+            echo "✅ **All property tests passed**"
+            echo "- Input validation properties verified"
+            echo "- History preservation invariants confirmed"
+            echo "- Path mapping properties validated"
+            echo "- Conflict resolution strategies tested"
+            echo "- End-to-end workflow integrity verified"
+          else
+            echo "❌ **Property test failures detected**"
+            echo "Review the test output above for failed properties"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  release-security-validation:
+    name: Release Security Validation
+    runs-on: ubuntu-latest
+    needs: pre-release-validation
+    if: needs.pre-release-validation.outputs.should-run-full-suite == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: release-security
+        install-cargo-audit: 'false'
+
+    - name: Run comprehensive security scan
+      uses: ./.github/actions/security-scan
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        semgrep-token: ${{ secrets.SEMGREP_APP_TOKEN }}
+        upload-sarif: 'true'
+        fail-on-vulnerabilities: 'true'
+
+    - name: Validate dependency licenses
+      run: |
+        echo "Checking dependency licenses for release compliance..."
+        cargo install cargo-license --quiet
+        cargo license --json > licenses.json
+
+        # Check for any problematic licenses
+        if jq -r '.[].license' licenses.json | grep -E "(AGPL|GPL-2.0|Unknown)" > problematic-licenses.txt; then
+          echo "::error::Problematic licenses found for release:"
+          cat problematic-licenses.txt
+          exit 1
+        else
+          echo "✓ All dependency licenses are release-compliant"
+        fi
+
+  release-performance-validation:
+    name: Release Performance Validation
+    runs-on: ubuntu-latest
+    needs: pre-release-validation
+    if: needs.pre-release-validation.outputs.should-run-full-suite == 'true'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+      with:
+        toolchain: stable
+        cache-key: release-performance
+
+    - name: Install performance tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y time sysstat hyperfine
+
+    - name: Run performance benchmarks
+      timeout-minutes: 10
+      run: |
+        echo "=== Release Performance Validation ==="
+
+        # Build optimized binary
+        cargo build --release --bin git-mvh
+
+        # Basic performance smoke test
+        echo "Running performance smoke tests..."
+
+        # Test suite execution time
+        hyperfine --warmup 1 --runs 3 "cargo test --lib --release --quiet" \
+          | tee performance-results.txt
+
+        # Memory usage validation
+        echo "Checking memory usage patterns..."
+        /usr/bin/time -v cargo test --lib --release --quiet 2>&1 | \
+          grep -E "(Maximum resident|User time|System time)" | \
+          tee -a performance-results.txt
+
+        echo "✓ Performance validation completed"
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v5.0.0
+      if: always()
+      with:
+        name: release-performance-results
+        path: performance-results.txt
+        retention-days: 7
+
+  release-summary:
+    name: Release Validation Summary
+    runs-on: ubuntu-latest
+    needs: [pre-release-validation, release-cross-platform-tests, release-security-validation, release-performance-validation]
+    if: always() && needs.pre-release-validation.outputs.should-run-full-suite == 'true'
+
+    steps:
+    - name: Generate release validation summary
+      run: |
+        {
+          echo "## 🚀 Release Validation Summary"
+          echo ""
+          echo "**Source Branch:** ${{ needs.pre-release-validation.outputs.pr-source-branch }}"
+          echo "**Validation Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+
+          # Cross-platform test results
+          echo "### Cross-Platform Test Results"
+          if [[ "${{ needs.release-cross-platform-tests.result }}" == "success" ]]; then
+            echo "✅ **Cross-Platform Tests:** PASSED (Ubuntu, macOS, Windows)"
+          else
+            echo "❌ **Cross-Platform Tests:** FAILED"
+          fi
+
+          # Security validation results
+          if [[ "${{ needs.release-security-validation.result }}" == "success" ]]; then
+            echo "✅ **Security Validation:** PASSED"
+          else
+            echo "❌ **Security Validation:** FAILED"
+          fi
+
+          # Performance validation results
+          if [[ "${{ needs.release-performance-validation.result }}" == "success" ]]; then
+            echo "✅ **Performance Validation:** PASSED"
+          else
+            echo "❌ **Performance Validation:** FAILED"
+          fi
+
+          echo ""
+
+          # Overall status
+          if [[ "${{ needs.release-cross-platform-tests.result }}" == "success" && \
+                "${{ needs.release-security-validation.result }}" == "success" && \
+                "${{ needs.release-performance-validation.result }}" == "success" ]]; then
+            echo "🎉 **Overall Status:** ✅ READY FOR RELEASE"
+            echo ""
+            echo "All validation checks have passed. This branch is ready to be merged to main."
+          else
+            echo "⚠️ **Overall Status:** ❌ NOT READY FOR RELEASE"
+            echo ""
+            echo "One or more validation checks have failed. Please review and fix issues before merging."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Set PR status
+      if: github.event_name == 'pull_request'
+      run: |
+        if [[ "${{ needs.release-cross-platform-tests.result }}" == "success" && \
+              "${{ needs.release-security-validation.result }}" == "success" && \
+              "${{ needs.release-performance-validation.result }}" == "success" ]]; then
+          echo "::notice::Release validation passed - ready for merge"
+        else
+          echo "::error::Release validation failed - merge blocked"
+          exit 1
+        fi
