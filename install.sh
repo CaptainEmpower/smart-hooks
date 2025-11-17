@@ -40,9 +40,11 @@ install_via_cargo() {
     print_status "Installing smart-hooks via cargo..."
     cargo install --git https://github.com/$REPO
     print_status "✅ Installation complete!"
-    print_status "smart-hooks binaries are now available:"
-    echo "  • smart-test-selector"
-    echo "  • claude-bdd-selector"
+    print_status "smart-hooks unified CLI is now available with commands:"
+    echo "  • smart-hooks test      - Intelligent test selection"
+    echo "  • smart-hooks analyze   - Multi-language project analysis"
+    echo "  • smart-hooks check     - Check conditional compilation"
+    echo "  • smart-hooks bdd       - BDD feature selection (with claude-ai)"
 }
 
 # Install via Homebrew (if available)
@@ -76,4 +78,4 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
 fi
 
 print_status "🎉 Smart Hooks installation completed!"
-print_status "Run 'smart-test-selector --help' to get started"
+print_status "Run 'smart-hooks --help' to get started"
