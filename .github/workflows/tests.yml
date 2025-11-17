@@ -66,15 +66,8 @@ jobs:
         cache-key: integration-tests
         install-system-deps: 'true'
 
-    - name: Setup tmpfs for performance
-      run: |
-        sudo mkdir -p /tmp/smart-hooks-tests
-        sudo mount -t tmpfs -o size=1G tmpfs /tmp/smart-hooks-tests
-        echo "SMART_HOOKS_USE_TMPFS=1" >> "$GITHUB_ENV"
-        echo "TMPFS_BASE=/tmp/smart-hooks-tests" >> "$GITHUB_ENV"
-
     - name: Run all integration tests
-      timeout-minutes: 10
+      timeout-minutes: 8
       env:
         SMART_HOOKS_TEST_MODE: 1
         TEST_PARALLEL_SHARDS: 2
@@ -84,12 +77,6 @@ jobs:
         cargo test --test "*" --release
         
         echo "Integration tests completed successfully!"
-
-    - name: Cleanup tmpfs
-      if: always()
-      run: |
-        sudo umount /tmp/smart-hooks-tests || true
-        sudo rm -rf /tmp/smart-hooks-tests || true
 
   test-summary:
     name: Test Summary

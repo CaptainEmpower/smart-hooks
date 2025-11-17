@@ -349,18 +349,13 @@ jobs:
         toolchain: stable
         cache-key: release-performance
 
-    - name: Install performance tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y time sysstat hyperfine
-
-    - name: Run performance benchmarks
-      timeout-minutes: 10
+    - name: Run performance validation
+      timeout-minutes: 8
       run: |
         echo "=== Release Performance Validation ==="
 
         # Build optimized binary
-        cargo build --release --bin git-mvh
+        cargo build --release --bin smart-hooks
 
         # Basic performance smoke test
         echo "Running performance smoke tests..."
