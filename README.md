@@ -32,14 +32,33 @@ smart-hooks provides a sophisticated, AI-powered system for automatically select
 
 ## 🚀 Quick Start
 
-### Installation
+## 🚀 Installation
 
+### macOS (Homebrew - Recommended)
+```bash
+brew tap CaptainEmpower/smart-hooks
+brew install smart-hooks
+```
+
+### Quick Install (macOS/Linux)
+```bash
+curl -sSL https://raw.githubusercontent.com/CaptainEmpower/smart-hooks/main/install.sh | bash
+```
+
+### Manual Install (Any Platform)
+```bash
+cargo install --git https://github.com/CaptainEmpower/smart-hooks
+```
+
+### Library Usage
 Add to your `Cargo.toml`:
 
 ```toml
 [dev-dependencies]
 smart-hooks = "0.2"
 ```
+
+📖 **For detailed installation instructions, see [INSTALL.md](INSTALL.md)**
 
 ### Basic Usage
 
