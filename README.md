@@ -62,6 +62,14 @@ smart-hooks = "0.2"
 
 ### Basic Usage
 
+**Available Commands:**
+```bash
+smart-hooks test [FILES]...         # Intelligent test selection
+smart-hooks analyze [--verbose]     # Multi-language project analysis
+smart-hooks check [PATH]            # Check conditional compilation
+smart-hooks bdd [FILES]...          # BDD feature selection (requires claude-ai)
+```
+
 1. **Install pre-commit hooks:**
 ```bash
 pip install pre-commit
@@ -73,9 +81,9 @@ pre-commit install
 repos:
   - repo: local
     hooks:
-      - id: smart-test-selector
+      - id: smart-hooks-test
         name: Smart Test Selection
-        entry: cargo run --bin smart-test-selector --
+        entry: smart-hooks test
         language: system
         files: '^src/.*\.rs$'
         pass_filenames: true
@@ -103,7 +111,7 @@ api_interfaces = ["/api/", "/controller/", "/endpoint/"]
 
 ```bash
 # Automatically select tests based on changed files
-cargo run --bin smart-test-selector -- src/core/processor.rs src/api/controller.rs
+smart-hooks test src/core/processor.rs src/api/controller.rs
 
 # Output:
 # 🔍 Running unit tests for: processor, controller
@@ -114,10 +122,8 @@ cargo run --bin smart-test-selector -- src/core/processor.rs src/api/controller.
 ### Claude AI BDD Selection
 
 ```bash
-# Intelligent BDD feature selection with Claude AI
-cargo run --bin claude-bdd-selector --features claude-ai -- \
-    --dry-run \
-    --context "Payment processing system with fraud detection"
+# Intelligent BDD feature selection with Claude AI (requires claude-ai feature)
+smart-hooks bdd src/core/processor.rs src/api/controller.rs
 
 # Output:
 # 🤖 Claude AI Analysis Results:
@@ -180,8 +186,8 @@ smart-hooks/
 │   │   ├── file_utils.rs          # File operations
 │   │   ├── impact_analyzer.rs     # Change impact assessment
 │   │   └── module_utils.rs        # Module name extraction
-│   ├── smart_test_selector.rs     # Main CLI binary
-│   └── claude_bdd_selector.rs     # Claude AI CLI binary
+│   ├── main.rs                    # Unified CLI with subcommands
+│   └── lib.rs                     # Library interface
 ├── features/              # BDD feature files
 ├── tests/                # Integration tests
 ├── example-config.toml   # Configuration template
@@ -260,17 +266,16 @@ bdd_test_patterns = ["/apply/", "/strategy/", "/service/"]
 # https://docs.anthropic.com/claude/docs/claude-code
 ```
 
-2. **Enable feature:**
+2. **Install with Claude AI feature:**
 ```bash
-cargo run --bin claude-bdd-selector --features claude-ai
+cargo install smart-hooks --features claude-ai
 ```
 
 3. **Usage:**
 ```bash
 # Analyze staged changes
 git add src/core/payment_processor.rs
-cargo run --bin claude-bdd-selector --features claude-ai -- \
-    --context "E-commerce platform with payment processing"
+smart-hooks bdd src/core/payment_processor.rs
 ```
 
 ### Benefits
@@ -332,11 +337,12 @@ smart-hooks follows **Single Responsibility Principle** with each module ≤300 
 # GitHub Actions
 - name: Smart Test Selection
   run: |
-    cargo run --bin smart-test-selector -- $(git diff --name-only HEAD~1)
+    smart-hooks test $(git diff --name-only HEAD~1)
 
 # GitLab CI
 script:
-  - cargo run --bin claude-bdd-selector --features claude-ai -- --dry-run
+  - smart-hooks analyze --verbose
+  - smart-hooks check
 ```
 
 ### With Pre-commit
@@ -346,11 +352,12 @@ script:
 repos:
   - repo: local
     hooks:
-      - id: intelligent-bdd
-        name: Intelligent BDD Selection
-        entry: cargo run --bin claude-bdd-selector --features claude-ai
+      - id: smart-hooks
+        name: Smart Hooks Analysis
+        entry: smart-hooks test
         files: '^src/.*\.rs$'
         language: system
+        pass_filenames: true
 ```
 
 ### With Custom Scripts
@@ -363,7 +370,7 @@ CHANGED_FILES=$(git diff --cached --name-only --diff-filter=AM | grep "\.rs$")
 
 if [[ -n "$CHANGED_FILES" ]]; then
     echo "🔍 Analyzing changed files: $CHANGED_FILES"
-    cargo run --bin smart-test-selector -- $CHANGED_FILES
+    smart-hooks test $CHANGED_FILES
 fi
 ```
 
