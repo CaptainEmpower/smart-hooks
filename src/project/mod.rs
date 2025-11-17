@@ -1,5 +1,6 @@
 pub mod crate_analyzer;
 pub mod discovery;
+pub mod discovery_multilang;
 pub mod file_manager;
 pub mod manifest_parser;
 pub mod multi_lang_discovery;

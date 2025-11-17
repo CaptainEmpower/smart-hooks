@@ -1,7 +1,9 @@
 /// Git-MVH Pre-commit Hooks Library
 /// Modular architecture following Single Responsibility Principle
 pub mod analysis;
+pub mod dependency;
 pub mod execution;
+pub mod project;
 pub mod utilities;
 
 // Re-export commonly used types and functions
