@@ -56,7 +56,7 @@ repos:
     hooks:
       - id: smart-test-selector
         name: Smart Test Selection
-        entry: cargo run --bin smart-test-selector --manifest-path crates/smart-hooks/Cargo.toml --
+        entry: cargo run --bin smart-test-selector --
         language: system
         files: '^src/.*\.rs$'
         pass_filenames: true
@@ -126,26 +126,47 @@ let cmd = config.get_cucumber_command_for_file("src/api/users.rs");
 ## 📁 Project Structure
 
 ```
-crates/smart-hooks/
+smart-hooks/
 ├── src/
 │   ├── analysis/           # Core analysis modules
-│   │   ├── bdd_detector.rs       # Static BDD pattern detection
+│   │   ├── bdd/                   # BDD-specific analysis
+│   │   │   ├── feature_discovery.rs  # Feature file discovery
+│   │   │   ├── file_analyzer.rs      # BDD file analysis
+│   │   │   ├── static_selector.rs    # Static pattern selection
+│   │   │   └── types.rs              # BDD type definitions
+│   │   ├── bdd_detector.rs        # Static BDD pattern detection
 │   │   ├── claude_bdd_detector.rs # Claude AI integration
 │   │   ├── bdd_feature_selector.rs # Intelligent feature selection
 │   │   ├── config.rs              # Configuration management
 │   │   ├── dependency_mapper.rs   # Test dependency analysis
 │   │   └── file_analyzer.rs       # File content analysis
+│   ├── dependency/         # Dependency analysis
+│   │   ├── analyzers/             # Language-specific analyzers
+│   │   ├── graph.rs               # Dependency graph
+│   │   ├── multi_lang_analyzer.rs # Multi-language support
+│   │   └── types.rs               # Dependency types
 │   ├── execution/          # Test execution coordination
 │   │   ├── plan_executor.rs       # Test plan execution
 │   │   └── test_runner.rs         # Cargo command runner
+│   ├── hotreload/          # Hot-reload capabilities
+│   │   ├── cache/                 # Caching system
+│   │   ├── engine.rs              # Hot-reload engine
+│   │   ├── execution/             # Execution tracking
+│   │   └── tracking/              # File change tracking
+│   ├── project/            # Project discovery
+│   │   ├── discovery/             # Language detection
+│   │   ├── types.rs               # Project types
+│   │   └── multi_lang_discovery.rs # Multi-language discovery
 │   ├── utilities/          # Shared utilities
 │   │   ├── file_utils.rs          # File operations
 │   │   ├── impact_analyzer.rs     # Change impact assessment
 │   │   └── module_utils.rs        # Module name extraction
 │   ├── smart_test_selector.rs     # Main CLI binary
 │   └── claude_bdd_selector.rs     # Claude AI CLI binary
-├── example-config.toml     # Configuration template
-└── README.md              # This file
+├── features/              # BDD feature files
+├── tests/                # Integration tests
+├── example-config.toml   # Configuration template
+└── README.md            # This file
 ```
 
 ## ⚙️ Configuration
@@ -398,7 +419,7 @@ pub fn create_test_plan_with_config(
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](../../LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
@@ -406,6 +427,7 @@ This project is licensed under the MIT License - see the [LICENSE](../../LICENSE
 - **Cucumber** for excellent BDD testing framework
 - **Rust community** for amazing tooling and ecosystem
 - **git-mvh project** for inspiring the initial architecture
+- **Multi-language support** for TypeScript, Python, PHP, and Rust projects
 
 ---
 
