@@ -1,7 +1,7 @@
 //! File change tracking for intelligent cache invalidation
 
 use crate::hotreload::{HotReloadError, HotReloadResult};
-use crate::DependencyGraph;
+use crate::dependency::DependencyGraph;
 use notify::Event;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

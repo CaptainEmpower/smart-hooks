@@ -205,7 +205,7 @@ mod tests {{
     }}
 }}
 "#,
-                i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i
+                i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i
             );
 
             fs::write(src_dir.join(format!("module_{}.rs", i)), module_content)?;

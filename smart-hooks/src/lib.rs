@@ -3,7 +3,7 @@
 pub mod analysis;
 pub mod dependency;
 pub mod execution;
-//pub mod hotreload; // Temporarily disabled due to missing dependencies
+//pub mod hotreload; // Temporarily disabled due to missing dependencies (blake3, notify, tracing)
 pub mod project;
 pub mod utilities;
 
