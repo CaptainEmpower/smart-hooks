@@ -3,6 +3,7 @@
 pub mod analysis;
 pub mod dependency;
 pub mod execution;
+//pub mod hotreload; // Temporarily disabled due to missing dependencies
 pub mod project;
 pub mod utilities;
 
