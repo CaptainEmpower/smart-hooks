@@ -6,7 +6,7 @@
 
 **A modern replacement for pre-commit with intelligent code analysis. Built in Rust for performance and reliability.**
 
-smart-hooks is designed as a faster, smarter alternative to pre-commit. Instead of simple file pattern matching, it understands your code changes and intelligently selects relevant tests. Features AI-powered analysis, multi-language support, and zero-configuration setup.
+smart-hooks provides intelligent code analysis with **seamless prek integration**. Works perfectly standalone or as an enhanced layer over [prek](https://github.com/j178/prek) v0.2.20, combining enterprise-grade pre-commit infrastructure with AI-powered analysis.
 
 ## ✨ Features
 
@@ -30,6 +30,12 @@ smart-hooks is designed as a faster, smarter alternative to pre-commit. Instead 
 - **Intelligent feature selection** - Maps changes to behavioral requirements
 - **Graceful fallback** - Works with or without Claude CLI
 
+### 🔗 **Prek Integration** (Optional)
+- **Seamless integration** - Works with [prek](https://github.com/j178/prek) v0.2.20 stable
+- **Zero coupling** - No dependencies, perfect standalone operation
+- **Intelligent delegation** - Auto-detects prek and enhances with smart analysis
+- **Enterprise ready** - Production-grade pre-commit infrastructure when needed
+
 ## 🚀 Quick Start
 
 ## 🚀 Installation
@@ -48,6 +54,9 @@ curl -sSL https://raw.githubusercontent.com/CaptainEmpower/smart-hooks/main/inst
 ### Manual Install (Any Platform)
 ```bash
 cargo install --git https://github.com/CaptainEmpower/smart-hooks
+
+# Optional: Add prek integration for enterprise features
+cargo install prek@0.2.20
 ```
 
 ### Library Usage
@@ -64,6 +73,13 @@ smart-hooks = "0.2"
 
 **Available Commands:**
 ```bash
+# Enhanced pre-commit commands (with prek integration)
+smart-hooks run [HOOKS]...          # Run hooks (uses prek when available)
+smart-hooks install [TYPE]          # Install git hooks (prek or smart)
+smart-hooks list                    # List available hooks (prek + smart)
+smart-hooks validate                # Validate configuration (prek + smart)
+
+# Smart analysis commands (always available)
 smart-hooks test [FILES]...         # Intelligent test selection
 smart-hooks analyze [--verbose]     # Multi-language project analysis
 smart-hooks check [PATH]            # Check conditional compilation
@@ -350,25 +366,56 @@ script:
   - smart-hooks check
 ```
 
+### Prek Integration
+
+**🔗 Seamless integration with prek v0.2.20 for enterprise-grade workflows:**
+
+#### With Prek (Full Power)
+```bash
+# Install both tools
+cargo install smart-hooks prek@0.2.20
+
+# Use enhanced pre-commit commands
+smart-hooks run trailing-whitespace --files src/
+smart-hooks install pre-commit  # Uses prek infrastructure
+smart-hooks list               # Shows prek + smart hooks
+```
+
+#### Standalone Mode (Zero Dependencies)  
+```bash
+# Install smart-hooks only
+cargo install smart-hooks
+
+# Still get full intelligent functionality
+smart-hooks install pre-commit  # Creates smart git hooks
+smart-hooks run                 # Uses intelligent analysis
+```
+
+**See [PREK_INTEGRATION.md](PREK_INTEGRATION.md) for complete documentation.**
+
 ### Migration from pre-commit
 
-smart-hooks is designed as a modern replacement for pre-commit with significant advantages:
+**Three migration paths:**
 
-**vs pre-commit framework:**
-- ✅ **Native Rust performance** instead of Python overhead
-- ✅ **Intelligent code analysis** instead of simple pattern matching
-- ✅ **Understanding code changes** instead of just file modifications
-- ✅ **Built-in multi-language support** instead of separate plugins
-- ✅ **Zero configuration** for common use cases
-
-**Replace your `.pre-commit-config.yaml` with direct git hooks:**
+#### Option 1: Enhanced Prek (Recommended)
 ```bash
-# Instead of: pip install pre-commit && pre-commit install
-# Just use: smart-hooks directly in git hooks
+# Keep your .pre-commit-config.yaml, add intelligence
+cargo install smart-hooks prek@0.2.20
+smart-hooks run --all-files  # Enhanced with smart analysis
+```
 
-# .git/hooks/pre-commit
-#!/bin/sh
-smart-hooks test $(git diff --cached --name-only --diff-filter=AM)
+#### Option 2: Pure Smart-hooks
+```bash
+# Replace pre-commit entirely with intelligent hooks
+cargo install smart-hooks
+smart-hooks install pre-commit  # Creates intelligent git hooks
+```
+
+#### Option 3: Hybrid Approach
+```bash
+# Use both side by side
+smart-hooks test $(git diff --cached --name-only)  # Smart analysis
+prek run --all-files                               # Standard hooks
 ```
 
 ### With Custom Scripts

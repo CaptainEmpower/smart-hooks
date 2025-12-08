@@ -1,0 +1,53 @@
+[package]
+name = "smart-hooks"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/CaptainEmpower/smart-hooks"
+description = "Intelligent git hooks that understand your code changes and automatically select the right tests to run"
+authors = ["Smart Hooks Team"]
+keywords = ["git", "hooks", "testing", "bdd", "automation"]
+categories = ["development-tools", "command-line-utilities"]
+
+[[bin]]
+name = "smart-hooks"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace dependencies
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+# Prek CLI integration via cargo install (stable version)
+# Users can install with: cargo install prek@0.2.20
+# We'll detect and delegate to prek CLI when available
+
+# Smart-hooks specific dependencies
+tokio = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+
+# Additional dependencies for analysis
+regex = "1.0"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }
+regex = "1.0"
+
+[features]
+default = ["intelligent-analysis"]
+# AI-powered analysis capabilities
+intelligent-analysis = ["claude-ai", "bdd-analysis", "hotreload"]
+claude-ai = ["tokio", "tempfile"]
+bdd-analysis = []
+hotreload = []
+# Prek CLI delegation (external command integration)
+prek-cli = []
+
+[lib]
+name = "smart_hooks"
+path = "src/lib.rs"
