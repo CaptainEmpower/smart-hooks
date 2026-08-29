@@ -378,7 +378,7 @@ jobs:
       with:
         name: release-performance-results
         path: performance-results.txt
-        retention-days: 7
+        retention-days: 10
 
   release-summary:
     name: Release Validation Summary

@@ -241,7 +241,7 @@ jobs:
         path: |
           trufflehog-results/
           trufflehog_output.json
-        retention-days: 90
+        retention-days: 10
 
     - name: Security alert handling
       if: always()

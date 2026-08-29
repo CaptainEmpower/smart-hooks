@@ -165,7 +165,7 @@ jobs:
       with:
         name: rudra-static-analysis-${{ github.run_number }}
         path: rudra-results/
-        retention-days: 30
+        retention-days: 10
 
     - name: Check for critical findings
       if: always()
@@ -302,7 +302,7 @@ jobs:
       with:
         name: prusti-verification-${{ github.run_number }}
         path: prusti-results/
-        retention-days: 30
+        retention-days: 10
 
     - name: Check verification status
       if: always()
