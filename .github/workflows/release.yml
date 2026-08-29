@@ -289,7 +289,7 @@ jobs:
           ${{ env.SBOM_FILENAME }}.spdx.enhanced.json
           release-sbom-summary.md
           target/release/git-mvh
-        retention-days: 365  # Keep release SBOMs for 1 year
+        retention-days: 10  # Org-wide 10-day artifact retention (was 365; SBOMs also ship on the release)
 
     - name: Attach SBOM to release (if GitHub release)
       if: github.event.release.tag_name

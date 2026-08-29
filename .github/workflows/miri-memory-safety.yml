@@ -201,7 +201,7 @@ jobs:
       with:
         name: miri-memory-safety-analysis-${{ github.run_number }}
         path: miri-results/
-        retention-days: 30
+        retention-days: 10
 
     - name: Memory safety status check
       if: always()

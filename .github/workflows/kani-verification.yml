@@ -259,7 +259,7 @@ jobs:
       with:
         name: kani-verification-results-${{ github.run_number }}
         path: kani-results/
-        retention-days: 30
+        retention-days: 10
 
     - name: Check verification status
       if: always()
