@@ -14,9 +14,13 @@ This directory contains automated workflows for continuous integration, security
 | Workflow | Purpose | Schedule | Coverage |
 |----------|---------|----------|----------|
 | `weekly-security-scan.yml` | Git history secret scanning | Sundays 4 AM UTC | Historical commit analysis |
-| `code-quality.yml` | Static analysis & verification | Sundays 3 AM UTC + PRs | Unsafe patterns, formal verification |
-| `miri-memory-safety.yml` | Memory safety analysis | Sundays 5 AM UTC + PRs | Pure algorithm verification |
-| `kani-verification.yml` | Bounded model checking | Sundays 6 AM UTC + PRs | Mathematical correctness |
+
+The unsafe-code analysis workflows this table used to list — `code-quality.yml`
+(Rudra, Prusti), `miri-memory-safety.yml` and `kani-verification.yml` — were
+inherited from the sibling repository `CaptainEmpower/git-mvh` and targeted its
+crate, its modules and its proof harnesses. They could never run here. They are
+removed rather than retargeted: this crate contains no `unsafe` and defines no
+Kani proofs, and git-mvh still runs all three against its own code.
 
 ### Pull Request Workflows
 | Workflow | Purpose | Trigger | Validation |
@@ -64,10 +68,7 @@ This directory contains automated workflows for continuous integration, security
 
 ### Weekly Schedule (Sundays UTC)
 ```
-03:00 - Code quality analysis (Rudra)
 04:00 - Git history secret scanning (TruffleHog)
-05:00 - Memory safety analysis (Miri)
-06:00 - Bounded model checking (Kani)
 ```
 
 ### PR Triggers

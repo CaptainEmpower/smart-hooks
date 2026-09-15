@@ -67,7 +67,7 @@ jobs:
         ls -la target/release/
 
         # Get binary hash for SBOM metadata
-        BINARY_HASH=$(sha256sum target/release/git-mvh | cut -d' ' -f1)
+        BINARY_HASH=$(sha256sum target/release/smart-hooks | cut -d' ' -f1)
         echo "BINARY_SHA256=$BINARY_HASH" >> "$GITHUB_ENV"
 
     - name: Prepare release metadata
@@ -82,7 +82,7 @@ jobs:
           echo "RELEASE_TAG=$RELEASE_TAG"
           echo "RELEASE_NAME=$RELEASE_NAME"
           echo "RELEASE_DATE=$RELEASE_DATE"
-          echo "SBOM_FILENAME=sbom-git-mvh-$RELEASE_TAG"
+          echo "SBOM_FILENAME=sbom-smart-hooks-$RELEASE_TAG"
         } >> "$GITHUB_ENV"
 
         echo "Generating SBOM for release: $RELEASE_TAG"
@@ -116,9 +116,9 @@ jobs:
            --arg commit "${{ github.sha }}" \
            '
            .metadata.component.version = $tag |
-           .metadata.component.name = "git-mvh" |
+           .metadata.component.name = "smart-hooks" |
            .metadata.timestamp = $date |
-           .metadata.component.supplier.name = "git-mvh Project" |
+           .metadata.component.supplier.name = "smart-hooks Project" |
            .metadata.component.supplier.url = ["https://github.com/" + $repo] |
            .metadata.properties = [
              {
@@ -156,12 +156,12 @@ jobs:
            --arg repo "${{ github.repository }}" \
            --arg commit "${{ github.sha }}" \
            '
-           .name = "git-mvh-" + $tag |
+           .name = "smart-hooks-" + $tag |
            .documentNamespace = "https://github.com/" + $repo + "/releases/tag/" + $tag |
            .creationInfo.created = $date |
-           .creationInfo.creators = ["Tool: trivy", "Organization: git-mvh Project"] |
+           .creationInfo.creators = ["Tool: trivy", "Organization: smart-hooks Project"] |
            .packages[0].versionInfo = $tag |
-           .packages[0].supplier = "Organization: git-mvh Project" |
+           .packages[0].supplier = "Organization: smart-hooks Project" |
            .packages[0].downloadLocation = "https://github.com/" + $repo + "/releases/tag/" + $tag |
            .packages[0].checksums = [
              {
@@ -186,7 +186,7 @@ jobs:
         subject-path: |
           ${{ env.SBOM_FILENAME }}.cyclonedx.enhanced.json
           ${{ env.SBOM_FILENAME }}.spdx.enhanced.json
-          target/release/git-mvh
+          target/release/smart-hooks
 
     - name: Generate release SBOM summary
       run: |
@@ -288,7 +288,7 @@ jobs:
           ${{ env.SBOM_FILENAME }}.cyclonedx.enhanced.json
           ${{ env.SBOM_FILENAME }}.spdx.enhanced.json
           release-sbom-summary.md
-          target/release/git-mvh
+          target/release/smart-hooks
         retention-days: 10  # Org-wide 10-day artifact retention (was 365; SBOMs also ship on the release)
 
     - name: Attach SBOM to release (if GitHub release)
@@ -299,7 +299,7 @@ jobs:
         files: |
           ${{ env.SBOM_FILENAME }}.cyclonedx.enhanced.json
           ${{ env.SBOM_FILENAME }}.spdx.enhanced.json
-          target/release/git-mvh
+          target/release/smart-hooks
         body_path: release-sbom-summary.md
         append_body: true
       env:
@@ -332,11 +332,11 @@ jobs:
           echo "**To verify release integrity:**"
           echo '```bash'
           echo "# Download release artifacts"
-          echo "wget https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/git-mvh"
+          echo "wget https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/smart-hooks"
           echo "wget https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ env.SBOM_FILENAME }}.cyclonedx.enhanced.json"
           echo ""
           echo "# Verify binary checksum"
-          echo "echo '${{ env.BINARY_SHA256 }}  git-mvh' | sha256sum -c"
+          echo "echo '${{ env.BINARY_SHA256 }}  smart-hooks' | sha256sum -c"
           echo ""
           echo "# Validate SBOM content"
           echo "jq '.metadata.component.version' ${{ env.SBOM_FILENAME }}.cyclonedx.enhanced.json"

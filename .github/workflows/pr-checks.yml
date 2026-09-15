@@ -130,20 +130,6 @@ jobs:
         echo "Running integration tests..."
         cargo test --test "*" --release --quiet
 
-    - name: Run BDD tests
-      timeout-minutes: 8
-      env:
-        # Allow common test-related warnings while keeping other warnings strict
-        RUSTFLAGS: -D warnings -A dead_code -A unused_imports -A unused_variables
-      run: |
-        # Run BDD-specific tests if they exist
-        if find tests -name "*bdd*" -o -name "*cucumber*" | grep -q .; then
-          echo "Running BDD tests..."
-          cargo test bdd --release --quiet || true
-        else
-          echo "No BDD-specific tests found, skipping..."
-        fi
-
   cross-platform-smoke:
     name: Cross-Platform Smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
