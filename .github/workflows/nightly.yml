@@ -67,11 +67,6 @@ jobs:
         echo "=== Integration Tests ==="
         cargo test --test "*" --release --verbose
 
-        echo "=== BDD Tests ==="
-        if find tests -name "*bdd*" -o -name "*cucumber*" | grep -q .; then
-          cargo test bdd --release --verbose || true
-        fi
-
         echo "=== CLI Tests ==="
         cargo test --bin smart-hooks --release --verbose || true
 

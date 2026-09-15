@@ -188,33 +188,20 @@ jobs:
         # Core unit tests
         cargo test --lib --release --quiet
 
-        if [[ "${{ matrix.test_scope }}" == "full" ]]; then
-          # Full BDD test suite (Ubuntu only)
-          cargo test --test cucumber_tests --release
-
-          # Integration tests (from integration directory only)
-          for test_file in crates/git-mvh/tests/integration/*.rs; do
-            if [ -f "$test_file" ] && [ "$(basename "$test_file")" != "fixtures.rs" ]; then
-              test_name=$(basename "$test_file" .rs)
-              cargo test --test "$test_name" --release
-            fi
-          done
-        else
-          # Comprehensive but not exhaustive (macOS/Windows)
-          cargo test --test cucumber_tests --release -- --tags="@smoke or @compatibility"
-
-          # Essential integration tests
-          cargo test integration_test --release
-          cargo test real_repo_test --release
-        fi
+        # Every integration-test target this crate defines. Named targets are
+        # deliberately avoided: the previous form iterated
+        # `crates/git-mvh/tests/integration/*.rs` and ran `cucumber_tests`,
+        # `integration_test` and `real_repo_test` — all of which belong to the
+        # sibling git-mvh repository, none of which exist here.
+        cargo test --tests --release
 
     - name: Validate build artifacts
       run: |
         echo "Building release artifacts..."
-        cargo build --release --bin git-mvh
+        cargo build --release --bin smart-hooks
 
         # Verify binary works
-        ./target/release/git-mvh --version || target/release/git-mvh.exe --version
+        ./target/release/smart-hooks --version || target/release/smart-hooks.exe --version
 
         echo "✓ Release binary builds and runs successfully"
 
