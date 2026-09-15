@@ -217,8 +217,8 @@ mod tests {
         assert!(analysis.suggested_scenarios.len() > 0);
     }
 
-    #[tokio::test]
-    async fn test_hybrid_analysis() {
+    #[test]
+    fn fallback_analysis_declines_bdd_for_a_pure_function() {
         let content = r#"
         pub fn simple_add(a: i32, b: i32) -> i32 {
             a + b
@@ -231,10 +231,15 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
-        // This will use fallback since Claude AI feature is not enabled
-        let analysis = analyze_hybrid(file.path(), content).await.unwrap();
+        let analysis = analyze_with_fallback(file.path(), content).unwrap();
 
-        assert!(!analysis.should_have_bdd_tests); // Simple function doesn't need BDD
-        assert!(analysis.confidence < 0.5);
+        assert!(!analysis.should_have_bdd_tests);
+        assert!(
+            analysis.confidence < 0.5,
+            "confidence was {}",
+            analysis.confidence
+        );
+        assert_eq!(analysis.business_rules, Vec::<String>::new());
+        assert_eq!(analysis.integration_points, Vec::<String>::new());
     }
 }

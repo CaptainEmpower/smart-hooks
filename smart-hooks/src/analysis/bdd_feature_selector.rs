@@ -448,8 +448,8 @@ mod tests {
             .contains(&"Core business logic".to_string()));
     }
 
-    #[tokio::test]
-    async fn test_hybrid_selection() {
+    #[test]
+    fn static_selection_picks_features_for_a_core_business_logic_change() {
         let staged_files = vec![FileChange {
             file_path: "src/core/business_processor.rs".to_string(),
             change_type: "modified".to_string(),
@@ -457,13 +457,17 @@ mod tests {
         }];
 
         let available_features = vec!["business_logic.feature".to_string()];
-        let project_context = "Generic business logic processor with validation";
 
-        let selection =
-            select_bdd_features_hybrid(&staged_files, &available_features, project_context).await;
+        let selection = select_bdd_features_static(&staged_files, &available_features).unwrap();
 
-        assert!(selection.is_ok());
-        let selection = selection.unwrap();
         assert!(selection.should_run_bdd);
+        assert_eq!(
+            selection
+                .selected_features
+                .iter()
+                .map(|f| f.feature_file.as_str())
+                .collect::<Vec<_>>(),
+            vec!["business_logic.feature"]
+        );
     }
 }
