@@ -1,10 +1,7 @@
 pub mod crate_analyzer;
 pub mod discovery;
-pub mod discovery_multilang;
 pub mod file_manager;
 pub mod manifest_parser;
-pub mod multi_lang_discovery;
-pub mod multi_lang_types;
 pub mod test_config;
 /// Project configuration module
 /// Refactored into SRP-compliant submodules
@@ -14,13 +11,6 @@ pub mod types;
 pub use types::{
     AITestConfig, CrateInfo, CrateTestConfig, CrateType, ProjectMetadata, RustProjectConfig,
     TestSelectionMode, TestStrategy,
-};
-
-// Multi-language support
-pub use multi_lang_discovery::MultiLangProjectDiscovery;
-pub use multi_lang_types::{
-    BuildConfig, BuildTool, Language, LanguageCommands, LanguageConfig, MultiLangProjectConfig,
-    PackageManager, TestFramework,
 };
 
 // Main project configuration implementation

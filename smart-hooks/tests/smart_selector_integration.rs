@@ -11,7 +11,6 @@ fn test_empty_file_list() {
 
     assert_eq!(plan.unit_tests.len(), 0);
     assert!(!plan.integration_tests);
-    assert!(!plan.bdd_tests);
 }
 
 #[test]
@@ -26,7 +25,6 @@ fn test_non_rust_files_ignored() {
 
     assert_eq!(plan.unit_tests.len(), 0);
     assert!(!plan.integration_tests);
-    assert!(!plan.bdd_tests);
 }
 
 #[test]
@@ -39,19 +37,6 @@ fn test_core_validator_file_path_based() {
     println!("Unit tests found: {:?}", plan.unit_tests);
     assert!(plan.unit_tests.contains("core::move_validator"));
     assert!(plan.integration_tests);
-}
-
-#[test]
-fn test_behavioral_module_files_path_based() {
-    // Test path-based matching for behavioral modules
-    let config = TestSelectorConfig::path_based_only();
-    let files = vec![
-        "some/project/src/apply/strategy.rs".to_string(),
-        "some/project/src/strategy/adaptive.rs".to_string(),
-    ];
-    let plan = create_test_plan_with_config(&files, &config).unwrap();
-
-    assert!(plan.bdd_tests);
 }
 
 #[test]
@@ -82,15 +67,4 @@ fn test_mixed_file_types_path_based() {
     // Should trigger all test types via path matching
     assert!(plan.unit_tests.contains("core::move_validator"));
     assert!(plan.integration_tests);
-    assert!(plan.bdd_tests);
-}
-
-#[test]
-fn test_file_mover_service_triggers_bdd_path_based() {
-    let config = TestSelectorConfig::path_based_only();
-    let files = vec!["some/project/src/core/file_mover_service.rs".to_string()];
-    let plan = create_test_plan_with_config(&files, &config).unwrap();
-
-    assert!(plan.unit_tests.contains("core::file_mover_service"));
-    assert!(plan.bdd_tests); // Service changes affect behavior
 }

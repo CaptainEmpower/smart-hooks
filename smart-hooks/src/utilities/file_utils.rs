@@ -1,33 +1,53 @@
+//! Safe file reading and path classification.
+
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-/// File operation utilities
-/// Focused on safe file reading and content analysis
-/// Safely read file content with proper error handling
+/// Read a file, naming the path in the error on failure.
 pub fn read_file_content(path: &Path) -> Result<String> {
     fs::read_to_string(path).with_context(|| format!("Failed to read file: {}", path.display()))
 }
 
-/// Check if file path represents a Rust source file
+/// Whether the path names a Rust source file.
+///
+/// This is a question about the path, not the filesystem: it does not check
+/// that the file exists.
 pub fn is_rust_file(file_path: &str) -> bool {
     file_path.ends_with(".rs")
 }
 
-/// Check if file path is in the main crate (not tests)
+/// Whether the path is a Rust source file inside a crate's `src` directory and
+/// outside its `tests` directory.
+///
+/// Segment-aware so that repository-relative paths (`src/lib.rs`), which is what
+/// a hook runner passes, are recognised as readily as nested ones
+/// (`crates/foo/src/lib.rs`). See issue #7.
 pub fn is_core_functionality_file(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
-    path_str.contains("/src/") && !path_str.contains("/tests/") && path_str.ends_with(".rs")
-}
-
-/// Extract relative path from full file path
-pub fn get_relative_path(file_path: &str, prefix: &str) -> Option<String> {
-    if !file_path.starts_with(prefix) {
-        return None;
+    if !path_str.ends_with(".rs") {
+        return false;
     }
 
-    let relative = &file_path[prefix.len()..];
-    Some(relative.to_string())
+    let segments: Vec<&str> = path_str
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
+
+    // Any `tests` segment disqualifies the path, wherever it sits: `src/tests/`
+    // is test code inside a crate, and `tests/src/` is a fixture crate under an
+    // integration-test directory. Checking only after the source root let the
+    // latter through.
+    if segments.contains(&"tests") {
+        return false;
+    }
+
+    segments.contains(&"src")
+}
+
+/// Strip `prefix` from `file_path`, or `None` if it does not start with it.
+pub fn get_relative_path(file_path: &str, prefix: &str) -> Option<String> {
+    file_path.strip_prefix(prefix).map(|s| s.to_string())
 }
 
 #[cfg(test)]
@@ -35,24 +55,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_rust_file() {
+    fn rust_files_are_recognised_by_extension_alone() {
         assert!(is_rust_file("src/main.rs"));
         assert!(is_rust_file("core/mover.rs"));
+        // Existence is deliberately not consulted.
+        assert!(is_rust_file("/non/existent/file.rs"));
         assert!(!is_rust_file("Cargo.toml"));
         assert!(!is_rust_file("README.md"));
     }
 
     #[test]
-    fn test_is_core_functionality_file() {
-        let core_path = Path::new("crates/git-mvh/src/core/mover.rs");
-        let test_path = Path::new("crates/git-mvh/tests/integration.rs");
-
-        assert!(is_core_functionality_file(core_path));
-        assert!(!is_core_functionality_file(test_path));
+    fn core_files_are_recognised_from_repository_relative_paths() {
+        assert!(is_core_functionality_file(Path::new("src/lib.rs")));
+        assert!(is_core_functionality_file(Path::new("src/core/mover.rs")));
+        assert!(is_core_functionality_file(Path::new("./src/main.rs")));
     }
 
     #[test]
-    fn test_get_relative_path() {
+    fn core_files_are_recognised_from_nested_crate_paths() {
+        assert!(is_core_functionality_file(Path::new(
+            "crates/git-mvh/src/core/mover.rs"
+        )));
+    }
+
+    #[test]
+    fn fixtures_under_a_tests_directory_are_not_core_files() {
+        // `tests/src/...` is a fixture crate, not this crate's source.
+        assert!(!is_core_functionality_file(Path::new(
+            "tests/src/example.rs"
+        )));
+        assert!(!is_core_functionality_file(Path::new(
+            "tests/fixtures/demo/src/lib.rs"
+        )));
+        assert!(!is_core_functionality_file(Path::new(
+            "crates/foo/tests/src/helper.rs"
+        )));
+    }
+
+    #[test]
+    fn test_code_and_non_rust_paths_are_not_core_files() {
+        assert!(!is_core_functionality_file(Path::new(
+            "crates/git-mvh/tests/integration.rs"
+        )));
+        assert!(!is_core_functionality_file(Path::new(
+            "src/tests/helpers.rs"
+        )));
+        assert!(!is_core_functionality_file(Path::new("tests/thing.rs")));
+        assert!(!is_core_functionality_file(Path::new("build.rs")));
+        assert!(!is_core_functionality_file(Path::new("src/notes.md")));
+    }
+
+    #[test]
+    fn relative_paths_are_stripped_by_prefix() {
         assert_eq!(
             get_relative_path("crates/git-mvh/src/core/mover.rs", "crates/git-mvh/src/"),
             Some("core/mover.rs".to_string())

@@ -1,9 +1,8 @@
 /// Integration tests for smart-hooks end-to-end workflows
 use anyhow::Result;
-use smart_hooks::analysis::{dependency_mapper, config::TestSelectorConfig};
-use smart_hooks::project::{discovery::ProjectDiscovery, types::ProjectMetadata};
+use smart_hooks::analysis::{config::TestSelectorConfig, dependency_mapper};
+use smart_hooks::project::discovery::ProjectDiscovery;
 use smart_hooks::utilities::{file_utils, impact_analyzer};
-use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -14,9 +13,11 @@ fn test_end_to_end_workflow() -> Result<()> {
     // Create a temporary Rust project structure
     let temp_dir = TempDir::new()?;
     let project_root = temp_dir.path();
-    
+
     // Create Cargo.toml
-    fs::write(project_root.join("Cargo.toml"), r#"
+    fs::write(
+        project_root.join("Cargo.toml"),
+        r#"
 [package]
 name = "test-project"
 version = "0.1.0"
@@ -25,13 +26,16 @@ edition = "2021"
 [dependencies]
 serde = "1.0"
 tokio = "1.0"
-"#)?;
+"#,
+    )?;
 
     // Create src directory with main.rs
     let src_dir = project_root.join("src");
     fs::create_dir_all(&src_dir)?;
-    
-    fs::write(src_dir.join("main.rs"), r#"
+
+    fs::write(
+        src_dir.join("main.rs"),
+        r#"
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
@@ -61,9 +65,12 @@ mod tests {
         assert_eq!(user.name, "Test");
     }
 }
-"#)?;
+"#,
+    )?;
 
-    fs::write(src_dir.join("lib.rs"), r#"
+    fs::write(
+        src_dir.join("lib.rs"),
+        r#"
 pub mod utils;
 
 pub fn add(a: i32, b: i32) -> i32 {
@@ -79,9 +86,12 @@ mod tests {
         assert_eq!(add(2, 3), 5);
     }
 }
-"#)?;
+"#,
+    )?;
 
-    fs::write(src_dir.join("utils.rs"), r#"
+    fs::write(
+        src_dir.join("utils.rs"),
+        r#"
 pub fn format_string(input: &str) -> String {
     format!("Formatted: {}", input)
 }
@@ -96,7 +106,8 @@ mod tests {
         assert_eq!(result, "Formatted: test");
     }
 }
-"#)?;
+"#,
+    )?;
 
     // Test 1: Project Discovery
     let project_config = ProjectDiscovery::discover(project_root)?;
@@ -113,58 +124,20 @@ mod tests {
     let impact_level = impact_analyzer::determine_impact_level(&changed_files);
     assert!(impact_level != smart_hooks::utilities::impact_analyzer::ImpactLevel::None);
 
-    // Test 4: Test Planning
-    let test_plan = dependency_mapper::create_test_plan(&changed_files)?;
-    
-    // Should create a plan with some unit tests since we modified a core file
-    // Temporarily disabled during SRP refactoring - will re-enable after module integration complete
-    // assert!(!test_plan.unit_tests.is_empty() || test_plan.integration_tests || test_plan.bdd_tests);
-
-    Ok(())
-}
-
-/// Test BDD feature discovery and analysis workflow
-#[test]
-fn test_bdd_workflow() -> Result<()> {
-    let temp_dir = TempDir::new()?;
-    let project_root = temp_dir.path();
-    
-    // Create a features directory with BDD files
-    let features_dir = project_root.join("features");
-    fs::create_dir_all(&features_dir)?;
-    
-    fs::write(features_dir.join("user_management.feature"), r#"
-Feature: User Management
-  As a user
-  I want to manage my account
-  So that I can access the system
-
-  Scenario: User registration
-    Given I am on the registration page
-    When I enter valid credentials
-    Then my account should be created
-"#)?;
-
-    fs::write(features_dir.join("authentication.feature"), r#"
-Feature: Authentication
-  As a user
-  I want to log into the system
-  So that I can access my account
-
-  Scenario: Successful login
-    Given I have a valid account
-    When I enter correct credentials
-    Then I should be logged in
-"#)?;
-
-    // Test BDD feature discovery using the correct function
-    let features = smart_hooks::analysis::bdd_feature_selector::discover_bdd_features(project_root)?;
-    assert_eq!(features.len(), 2);
-    
-    let feature_names: Vec<&str> = features.iter().map(|f| f.as_str()).collect();
-    // Temporarily disabled during SRP refactoring
-    // assert!(feature_names.contains(&"User Management"));
-    assert!(feature_names.contains(&"Authentication"));
+    // Test 4: Test Planning. `main.rs` is a crate root, so it has no module of
+    // its own; a sibling module is what produces a unit-test selection.
+    let module_file = src_dir.join("calculator.rs");
+    fs::write(
+        &module_file,
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )?;
+    let test_plan =
+        dependency_mapper::create_test_plan(&[module_file.to_string_lossy().to_string()])?;
+    assert!(
+        test_plan.unit_tests.contains("calculator"),
+        "expected `calculator` in {:?}",
+        test_plan.unit_tests
+    );
 
     Ok(())
 }
@@ -173,12 +146,12 @@ Feature: Authentication
 #[test]
 fn test_configuration_workflow() {
     let config = TestSelectorConfig::default();
-    
+
     // Test default configuration has sensible values
-    assert!(!config.bdd_test_patterns.is_empty());
-    
-    // Test pattern matching
-    assert!(config.bdd_test_patterns.iter().any(|p| p.contains("feature")));
+
+    // Structural paths select integration coverage; ordinary modules do not.
+    assert!(config.should_run_integration_tests("src/core/engine.rs"));
+    assert!(!config.should_run_integration_tests("src/calculator.rs"));
 }
 
 /// Test multi-file change analysis
@@ -187,27 +160,32 @@ fn test_multi_file_analysis() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let src_dir = temp_dir.path().join("src");
     fs::create_dir_all(&src_dir)?;
-    
+
     // Create multiple related files
-    fs::write(src_dir.join("main.rs"), "fn main() { println!(\"Hello\"); }")?;
+    fs::write(
+        src_dir.join("main.rs"),
+        "fn main() { println!(\"Hello\"); }",
+    )?;
     fs::write(src_dir.join("lib.rs"), "pub mod utils;")?;
     fs::write(src_dir.join("utils.rs"), "pub fn helper() -> i32 { 42 }")?;
-    
+
     let changed_files = vec![
         src_dir.join("main.rs").to_string_lossy().to_string(),
         src_dir.join("utils.rs").to_string_lossy().to_string(),
     ];
-    
+
     // Test impact analysis with multiple files
     let impact = impact_analyzer::determine_impact_level(&changed_files);
-    assert!(impact == smart_hooks::utilities::impact_analyzer::ImpactLevel::High ||
-            impact == smart_hooks::utilities::impact_analyzer::ImpactLevel::Medium);
-    
+    assert!(
+        impact == smart_hooks::utilities::impact_analyzer::ImpactLevel::High
+            || impact == smart_hooks::utilities::impact_analyzer::ImpactLevel::Medium
+    );
+
     // Test test planning with multiple files
     let test_plan = dependency_mapper::create_test_plan(&changed_files)?;
-    
+
     // Should have recommendations for multiple files
-    assert!(test_plan.unit_tests.len() >= 1);
+    assert!(!test_plan.unit_tests.is_empty());
 
     Ok(())
 }
@@ -218,11 +196,14 @@ fn test_error_handling() {
     // Test with non-existent directory
     let result = ProjectDiscovery::discover(Path::new("/nonexistent/path"));
     assert!(result.is_err());
-    
+
     // Test impact analysis with empty file list
     let impact = impact_analyzer::determine_impact_level(&[]);
-    assert_eq!(impact, smart_hooks::utilities::impact_analyzer::ImpactLevel::None);
-    
+    assert_eq!(
+        impact,
+        smart_hooks::utilities::impact_analyzer::ImpactLevel::None
+    );
+
     // Test test planning with empty files
     let empty_files = vec![];
     let test_plan = dependency_mapper::create_test_plan(&empty_files);
@@ -235,27 +216,29 @@ fn test_file_utilities() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let test_file = temp_dir.path().join("test.rs");
     fs::write(&test_file, "fn test() {}")?;
-    
+
     // Test file type detection
     assert!(file_utils::is_rust_file(test_file.to_str().unwrap()));
-    
+
     // Test with different file extensions
     let js_file = temp_dir.path().join("script.js");
     fs::write(&js_file, "console.log('hello');")?;
     assert!(!file_utils::is_rust_file(js_file.to_str().unwrap()));
-    
+
     // Test core functionality detection
-    let main_file = temp_dir.path().join("main.rs");
+    let src_dir = temp_dir.path().join("src");
+    fs::create_dir_all(&src_dir)?;
+    let main_file = src_dir.join("main.rs");
     fs::write(&main_file, "fn main() {}")?;
     assert!(file_utils::is_core_functionality_file(&main_file));
-    
+
     // Test relative path calculation
     let relative = file_utils::get_relative_path(
-        main_file.to_str().unwrap(), 
-        temp_dir.path().to_str().unwrap()
+        main_file.to_str().unwrap(),
+        temp_dir.path().to_str().unwrap(),
     );
     assert!(relative.is_some());
-    assert_eq!(relative.unwrap(), "main.rs");
+    assert_eq!(relative.unwrap(), "/src/main.rs");
 
     Ok(())
 }
@@ -265,20 +248,25 @@ fn test_file_utilities() -> Result<()> {
 fn test_smart_test_selection() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let project_root = temp_dir.path();
-    
+
     // Set up a complete Rust project
-    fs::write(project_root.join("Cargo.toml"), r#"
+    fs::write(
+        project_root.join("Cargo.toml"),
+        r#"
 [package]
 name = "integration-test-project"
 version = "0.1.0"
 edition = "2021"
-"#)?;
-    
+"#,
+    )?;
+
     let src_dir = project_root.join("src");
     fs::create_dir_all(&src_dir)?;
-    
+
     // Core business logic file
-    fs::write(src_dir.join("business.rs"), r#"
+    fs::write(
+        src_dir.join("business.rs"),
+        r#"
 pub struct Calculator;
 
 impl Calculator {
@@ -305,10 +293,13 @@ mod tests {
         assert_eq!(Calculator::multiply(2, 3), 6);
     }
 }
-"#)?;
+"#,
+    )?;
 
     // Utility file
-    fs::write(src_dir.join("utils.rs"), r#"
+    fs::write(
+        src_dir.join("utils.rs"),
+        r#"
 pub fn format_output(value: i32) -> String {
     format!("Result: {}", value)
 }
@@ -322,10 +313,13 @@ mod tests {
         assert_eq!(format_output(42), "Result: 42");
     }
 }
-"#)?;
+"#,
+    )?;
 
     // Main application file
-    fs::write(src_dir.join("main.rs"), r#"
+    fs::write(
+        src_dir.join("main.rs"),
+        r#"
 mod business;
 mod utils;
 
@@ -336,27 +330,30 @@ fn main() {
     let result = Calculator::add(5, 3);
     println!("{}", format_output(result));
 }
-"#)?;
+"#,
+    )?;
 
     // Test complete workflow
     let project_config = ProjectDiscovery::discover(project_root)?;
     assert!(!project_config.crates.is_empty());
-    
+
     // Simulate changes to the business logic file
     let changed_files = vec![src_dir.join("business.rs").to_string_lossy().to_string()];
-    
+
     // Analyze impact
     let impact = impact_analyzer::determine_impact_level(&changed_files);
     assert!(impact != smart_hooks::utilities::impact_analyzer::ImpactLevel::None);
-    
+
     // Create test plan
     let test_plan = dependency_mapper::create_test_plan(&changed_files)?;
-    
+
     // Verify test plan includes relevant tests
-    assert!(!test_plan.unit_tests.is_empty() || test_plan.integration_tests || test_plan.bdd_tests);
-    
+    assert!(!test_plan.unit_tests.is_empty() || test_plan.integration_tests);
+
     // Check that the test plan contains business-related tests
-    let has_business_test = test_plan.unit_tests.iter()
+    let has_business_test = test_plan
+        .unit_tests
+        .iter()
         .any(|test| test.contains("business") || test.contains("calculator"));
     assert!(has_business_test || test_plan.integration_tests);
 

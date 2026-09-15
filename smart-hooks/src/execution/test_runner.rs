@@ -25,18 +25,15 @@ pub fn run_unit_test(module_name: &str) -> Result<bool> {
     )
 }
 
-/// Run integration tests
+/// Run every integration-test target the project defines.
+///
+/// `--tests` rather than `--test <name>`: naming one target made the hook fail
+/// in any project that does not happen to define a target by that name, which
+/// is the same defect that `--test cucumber_tests` had. With `--tests`, a
+/// project with no integration targets is a no-op success.
 pub fn run_integration_tests() -> Result<bool> {
     run_cargo_command(
-        &["test", "--test", "integration_test", "--quiet"],
-        None, // Use current directory since we're now standalone
-    )
-}
-
-/// Run BDD tests
-pub fn run_bdd_tests() -> Result<bool> {
-    run_cargo_command(
-        &["test", "--test", "cucumber_tests", "--quiet"],
+        &["test", "--tests", "--quiet"],
         None, // Use current directory since we're now standalone
     )
 }
