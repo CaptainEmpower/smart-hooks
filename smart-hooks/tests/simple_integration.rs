@@ -73,7 +73,7 @@ fn test_test_plan_creation() -> Result<()> {
     let test_plan = dependency_mapper::create_test_plan(&core_files)?;
 
     // Should generate some kind of test recommendation
-    assert!(!test_plan.unit_tests.is_empty() || test_plan.integration_tests || test_plan.bdd_tests);
+    assert!(!test_plan.unit_tests.is_empty() || test_plan.integration_tests);
 
     Ok(())
 }

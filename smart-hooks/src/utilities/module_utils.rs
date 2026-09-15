@@ -20,10 +20,19 @@ fn after_src(segs: &[&str]) -> Option<usize> {
 /// Extract the Rust module path for a source file, e.g.
 /// `src/analysis/config.rs` -> `analysis::config`.
 ///
-/// Returns `None` for paths outside a `src` directory, for non-Rust files, and
-/// for crate roots (`main.rs`, `lib.rs`), which have no module of their own.
+/// Returns `None` for paths outside a `src` directory, for anything under a
+/// `tests` directory, for non-Rust files, and for crate roots (`main.rs`,
+/// `lib.rs`), which have no module of their own.
 pub fn extract_module_name(file_path: &str) -> Option<String> {
     let segs = segments(file_path);
+
+    // A `tests` segment anywhere means test code, not a module of this crate:
+    // `src/tests/helpers.rs` is test support, and `tests/src/fixture.rs` is a
+    // fixture crate. Selecting a unit-test filter from either is wrong.
+    if segs.contains(&"tests") {
+        return None;
+    }
+
     let start = after_src(&segs)?;
     let rest = &segs[start..];
 
@@ -128,6 +137,16 @@ mod tests {
             extract_module_name("src/vendor/thing/src/inner.rs"),
             Some("inner".to_string())
         );
+    }
+
+    #[test]
+    fn test_trees_yield_no_module_wherever_src_appears() {
+        // Regression for the review on #8: `tests/src/...` is a fixture crate,
+        // not this crate's source, and selecting `example` from it is wrong.
+        assert_eq!(extract_module_name("tests/src/example.rs"), None);
+        assert_eq!(extract_module_name("tests/fixtures/demo/src/lib.rs"), None);
+        assert_eq!(extract_module_name("src/tests/helpers.rs"), None);
+        assert_eq!(extract_module_name("crates/foo/tests/src/helper.rs"), None);
     }
 
     #[test]

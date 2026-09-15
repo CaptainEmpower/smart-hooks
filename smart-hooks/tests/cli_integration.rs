@@ -88,7 +88,6 @@ fn non_rust_files_select_nothing() {
         serde_json::json!(Vec::<String>::new())
     );
     assert_eq!(value["test_plan"]["integration_tests"], false);
-    assert_eq!(value["test_plan"]["bdd_tests"], false);
 }
 
 #[test]
@@ -121,4 +120,49 @@ fn removed_subcommands_exit_non_zero_rather_than_silently_passing() {
             "`smart-hooks {removed}` should be a usage error"
         );
     }
+}
+
+#[test]
+fn json_mode_emits_exactly_one_document_after_running_the_tests() {
+    // Regression for the review on #8: the JSON path used to print a
+    // "completed" document *before* execution, after which the executor wrote
+    // progress lines to stdout — so stdout was neither parseable nor truthful.
+    let output = run(&["test", "--json", "src/utilities/module_utils.rs"]);
+
+    let stdout = stdout_of(&output);
+    let value: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("stdout must be one JSON document, got {e}:\n{stdout}"));
+
+    // Status is the real outcome, and every suite is accounted for.
+    assert!(
+        value["status"] == "completed" || value["status"] == "failed",
+        "unexpected status: {}",
+        value["status"]
+    );
+    assert_eq!(
+        value["status"] == "completed",
+        output.status.code() == Some(0),
+        "status must agree with the exit code"
+    );
+    assert!(value["suites"].is_array(), "suites missing: {value}");
+    assert!(
+        !stdout.contains("Running:"),
+        "human progress leaked into JSON output:\n{stdout}"
+    );
+}
+
+#[test]
+fn structural_paths_do_not_schedule_an_absent_test_target() {
+    // Regression for the review on #8: a path under `src/core/` used to set a
+    // BDD flag whose executor ran `cargo test --test cucumber_tests`, a target
+    // this repository does not define — failing the hook on a valid commit.
+    let output = run(&["test", "--dry-run", "--json", "src/core/engine.rs"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let value: Value = serde_json::from_str(&stdout_of(&output)).expect("expected JSON");
+    assert!(
+        value["test_plan"].get("bdd_tests").is_none(),
+        "BDD selection is gone; plan still advertises it: {}",
+        value["test_plan"]
+    );
 }

@@ -342,9 +342,6 @@ fn test_test_plan_with_different_configurations() {
     // Plans should be different based on configuration
     assert!(!path_plan.unit_tests.is_empty());
     assert!(!custom_plan.unit_tests.is_empty());
-
-    // Custom config should trigger BDD for API files
-    assert!(custom_plan.bdd_tests);
 }
 
 #[test]

@@ -99,43 +99,10 @@ jobs:
       run: |
         cargo test --lib --release
 
-  feature-matrix:
-    name: Feature Matrix Testing
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        features: 
-          - ""
-          - "claude-ai"
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
-
-    - name: Setup Rust environment
-      uses: ./.github/actions/setup-rust
-      with:
-        toolchain: stable
-        cache-key: features-${{ matrix.features }}
-        install-system-deps: 'true'
-
-    - name: Test with features
-      timeout-minutes: 8
-      run: |
-        if [ -z "${{ matrix.features }}" ]; then
-          echo "Testing default features"
-          cargo test --lib --release
-        else
-          echo "Testing with features: ${{ matrix.features }}"
-          cargo test --lib --features "${{ matrix.features }}" --release
-        fi
-
   nightly-summary:
     name: Nightly Summary
     runs-on: ubuntu-latest
-    needs: [comprehensive-tests, cross-platform-nightly, feature-matrix]
+    needs: [comprehensive-tests, cross-platform-nightly]
     if: always()
 
     steps:
@@ -150,12 +117,11 @@ jobs:
           echo "### Test Results"
           echo "- **Comprehensive Tests:** ${{ needs.comprehensive-tests.result }}"
           echo "- **Cross-Platform:** ${{ needs.cross-platform-nightly.result }}"
-          echo "- **Feature Matrix:** ${{ needs.feature-matrix.result }}"
         } >> "$GITHUB_STEP_SUMMARY"
 
         # Calculate overall health
         FAILED_JOBS=0
-        for result in "${{ needs.comprehensive-tests.result }}" "${{ needs.cross-platform-nightly.result }}" "${{ needs.feature-matrix.result }}"; do
+        for result in "${{ needs.comprehensive-tests.result }}" "${{ needs.cross-platform-nightly.result }}"; do
           if [ "$result" = "failure" ]; then
             FAILED_JOBS=$((FAILED_JOBS + 1))
           fi

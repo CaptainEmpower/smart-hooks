@@ -34,13 +34,15 @@ pub fn is_core_functionality_file(path: &Path) -> bool {
         .filter(|s| !s.is_empty() && *s != ".")
         .collect();
 
-    let Some(src_index) = segments.iter().rposition(|s| *s == "src") else {
+    // Any `tests` segment disqualifies the path, wherever it sits: `src/tests/`
+    // is test code inside a crate, and `tests/src/` is a fixture crate under an
+    // integration-test directory. Checking only after the source root let the
+    // latter through.
+    if segments.contains(&"tests") {
         return false;
-    };
+    }
 
-    // A `tests` directory below `src` means the file is test code, not the
-    // crate's own functionality.
-    !segments[src_index..].contains(&"tests")
+    segments.contains(&"src")
 }
 
 /// Strip `prefix` from `file_path`, or `None` if it does not start with it.
@@ -73,6 +75,20 @@ mod tests {
     fn core_files_are_recognised_from_nested_crate_paths() {
         assert!(is_core_functionality_file(Path::new(
             "crates/git-mvh/src/core/mover.rs"
+        )));
+    }
+
+    #[test]
+    fn fixtures_under_a_tests_directory_are_not_core_files() {
+        // `tests/src/...` is a fixture crate, not this crate's source.
+        assert!(!is_core_functionality_file(Path::new(
+            "tests/src/example.rs"
+        )));
+        assert!(!is_core_functionality_file(Path::new(
+            "tests/fixtures/demo/src/lib.rs"
+        )));
+        assert!(!is_core_functionality_file(Path::new(
+            "crates/foo/tests/src/helper.rs"
         )));
     }
 

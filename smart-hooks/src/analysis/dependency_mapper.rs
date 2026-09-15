@@ -12,7 +12,6 @@ use std::path::Path;
 pub struct TestPlan {
     pub unit_tests: HashSet<String>,
     pub integration_tests: bool,
-    pub bdd_tests: bool,
 }
 
 /// Create test plan based on list of changed files
@@ -61,18 +60,10 @@ fn add_config_based_tests(file_path: &str, plan: &mut TestPlan, config: &TestSel
     if config.should_run_integration_tests(file_path) {
         plan.integration_tests = true;
     }
-
-    if config.should_run_bdd_tests(file_path) {
-        plan.bdd_tests = true;
-    }
 }
 
 fn add_content_based_tests(path: &Path, plan: &mut TestPlan) -> Result<()> {
     let flags = analyze_file_content(path)?;
-
-    if flags.has_move_operations || flags.has_conflict_resolution {
-        plan.bdd_tests = true;
-    }
 
     if flags.has_core_types || flags.has_error_handling {
         plan.integration_tests = true;
@@ -106,16 +97,6 @@ mod tests {
 
         assert!(plan.unit_tests.contains("core::move_validator"));
         assert!(plan.integration_tests);
-    }
-
-    #[test]
-    fn test_config_based_behavioral_module() {
-        let mut plan = TestPlan::default();
-        let config = TestSelectorConfig::default();
-        add_config_based_tests("project/src/apply/strategy.rs", &mut plan, &config);
-
-        assert!(plan.unit_tests.contains("apply::strategy"));
-        assert!(plan.bdd_tests);
     }
 
     #[test]

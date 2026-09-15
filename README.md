@@ -44,7 +44,9 @@ smart-hooks test --dry-run src/parser.rs
   unit: parser
 ```
 
-`--json` emits the same plan for scripting:
+`--json` emits the same plan for scripting. Under `--json`, stdout carries
+exactly one JSON document, written *after* execution so its `status` reflects
+what actually happened:
 
 ```json
 {
@@ -52,8 +54,7 @@ smart-hooks test --dry-run src/parser.rs
   "files_analysed": 1,
   "test_plan": {
     "unit_tests": ["parser"],
-    "integration_tests": false,
-    "bdd_tests": false
+    "integration_tests": false
   }
 }
 ```
@@ -68,8 +69,9 @@ Selection is **path-based**, derived from each changed file's module path:
 - `src/analysis/config.rs` → `analysis::config`
 - `src/analysis/mod.rs` → `analysis`
 - `src/main.rs`, `src/lib.rs` → no module of their own
-- Files matching configured structural patterns (`/core/`, `/api/`, `/strategy/`, …)
-  additionally select integration or scenario tests
+- Files matching configured patterns (`/core/`, `/types.rs`, `/error.rs`, …)
+  additionally select the integration-test targets
+- Anything under a `tests` directory selects nothing — it is test code, not crate source
 
 Configure it with a TOML file matching `TestSelectorConfig` if the defaults do
 not fit your layout.
@@ -136,7 +138,7 @@ The scope, and what was removed to reach it, are recorded in
 ## Development
 
 ```bash
-cargo test                                      # 111 tests
+cargo test                                      # 104 tests
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 ```

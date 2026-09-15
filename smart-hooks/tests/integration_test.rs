@@ -148,11 +148,10 @@ fn test_configuration_workflow() {
     let config = TestSelectorConfig::default();
 
     // Test default configuration has sensible values
-    assert!(!config.bdd_test_patterns.is_empty());
 
-    // Behavioural paths select scenario coverage; ordinary modules do not.
-    assert!(config.should_run_bdd_tests("src/strategy/adaptive.rs"));
-    assert!(!config.should_run_bdd_tests("src/calculator.rs"));
+    // Structural paths select integration coverage; ordinary modules do not.
+    assert!(config.should_run_integration_tests("src/core/engine.rs"));
+    assert!(!config.should_run_integration_tests("src/calculator.rs"));
 }
 
 /// Test multi-file change analysis
@@ -349,7 +348,7 @@ fn main() {
     let test_plan = dependency_mapper::create_test_plan(&changed_files)?;
 
     // Verify test plan includes relevant tests
-    assert!(!test_plan.unit_tests.is_empty() || test_plan.integration_tests || test_plan.bdd_tests);
+    assert!(!test_plan.unit_tests.is_empty() || test_plan.integration_tests);
 
     // Check that the test plan contains business-related tests
     let has_business_test = test_plan

@@ -73,9 +73,20 @@ smart-hooks is a **Rust test-impact selector**. One concern, stated honestly.
   report the plan as JSON when asked.
 - Drop from the CLI and the hook manifest: `lint`, `format`, `summary`, `analyze`,
   `check`, `capabilities`, `schema`, `status`, `examples`, `bdd`.
-- Drop the Claude-powered BDD feature selection and the multi-language analyzers.
-  Both are aspirational surface area attached to a core that is not yet good
+- Drop BDD selection entirely — the Claude-powered feature selection and the
+  static structural matching alike — along with the multi-language analyzers.
+  All are aspirational surface area attached to a core that is not yet good
   enough to carry them.
+
+  An initial draft of this narrowing kept a `bdd_tests` flag on the plan. The
+  review on PR #8 showed why that was wrong: the flag's executor ran a
+  hard-coded `cargo test --test cucumber_tests`, a target neither this
+  repository nor most consumers define, so an ordinary change under `src/core/`
+  failed the hook on a valid commit. The same applied to the integration path,
+  which named `--test integration_test`; it now runs `--tests`, so a project
+  with no integration targets is a no-op rather than a failure.
+
+  **A selector must never schedule a target it has not established exists.**
 - Publish exactly the hooks that the binary implements.
 - Say "Rust and Cargo" everywhere the docs currently say "multi-language".
 
