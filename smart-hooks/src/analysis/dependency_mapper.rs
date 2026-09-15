@@ -1,4 +1,3 @@
-use crate::analysis::bdd_detector::detect_behavior_patterns;
 use crate::analysis::config::TestSelectorConfig;
 use crate::analysis::file_analyzer::analyze_file_content;
 use crate::utilities::{file_utils, module_utils};
@@ -41,14 +40,6 @@ pub fn create_test_plan_with_config(
         // Add content-based test mappings only if enabled and safe
         if config.enable_content_analysis && file_utils::is_core_functionality_file(path) {
             add_content_based_tests(path, &mut plan)?;
-
-            // Use BDD detector for intelligent behavioral test detection
-            if let Ok(behavior_patterns) = detect_behavior_patterns(path) {
-                if behavior_patterns.should_run_bdd_tests(0.5) {
-                    // 50% confidence threshold
-                    plan.bdd_tests = true;
-                }
-            }
         }
     }
 

@@ -1,6 +1,5 @@
 pub mod analyzer;
 pub mod graph;
-pub mod multi_lang_analyzer;
 pub mod rust_analyzer;
 pub mod rust_parser;
 pub mod test_resolver;
@@ -11,10 +10,6 @@ pub mod types;
 // Re-export main types for external use
 pub use analyzer::DependencyAnalyzer;
 pub use graph::DependencyGraph;
-pub use multi_lang_analyzer::{
-    LanguageDependencyAnalyzer, MultiLangDependencyAnalyzer, PhpDependencyAnalyzer,
-    PythonDependencyAnalyzer, TypeScriptDependencyAnalyzer,
-};
 pub use rust_analyzer::RustDependencyAnalyzer;
 pub use types::{Dependency, DependencyType, TestTarget, TestType};
 

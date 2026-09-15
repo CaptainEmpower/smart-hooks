@@ -1,42 +1,65 @@
-/// Module name extraction utilities
-/// Focused on converting file paths to Rust module names
-/// Extract module name from a Rust source file path
+//! Convert file paths to Rust module names.
+
+/// Split a path into `/`-separated segments, ignoring `./` and empty segments.
+///
+/// Paths reach us from a hook runner as repository-relative strings
+/// (`src/calculator.rs`), so segment matching has to work with or without a
+/// leading component.
+fn segments(file_path: &str) -> Vec<&str> {
+    file_path
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect()
+}
+
+/// Index just past the last `src` segment, if the path has one.
+fn after_src(segs: &[&str]) -> Option<usize> {
+    segs.iter().rposition(|s| *s == "src").map(|i| i + 1)
+}
+
+/// Extract the Rust module path for a source file, e.g.
+/// `src/analysis/config.rs` -> `analysis::config`.
+///
+/// Returns `None` for paths outside a `src` directory, for non-Rust files, and
+/// for crate roots (`main.rs`, `lib.rs`), which have no module of their own.
 pub fn extract_module_name(file_path: &str) -> Option<String> {
-    // Find the src/ directory and extract everything after it
-    let src_index = file_path.find("/src/")?;
-    let relative_path = &file_path[src_index + 5..]; // Skip "/src/"
+    let segs = segments(file_path);
+    let start = after_src(&segs)?;
+    let rest = &segs[start..];
 
-    if !relative_path.ends_with(".rs") {
+    let (last, parents) = rest.split_last()?;
+    let stem = last.strip_suffix(".rs")?;
+
+    if parents.is_empty() && (stem == "main" || stem == "lib") {
         return None;
     }
 
-    let module_path = &relative_path[..relative_path.len() - 3];
+    let mut parts: Vec<&str> = parents.to_vec();
+    if stem != "mod" {
+        parts.push(stem);
+    }
 
-    // Skip main.rs and lib.rs as they don't have specific tests
-    if module_path == "main" || module_path == "lib" {
+    if parts.is_empty() {
         return None;
     }
 
-    // Convert path to module name (/ to ::, remove /mod)
-    let module_name = module_path.replace('/', "::").replace("::mod", "");
-
-    Some(module_name)
+    Some(parts.join("::"))
 }
 
-/// Check if a file path represents a core module
+/// Whether the path looks like a core module worth integration coverage.
 pub fn is_core_module(file_path: &str) -> bool {
-    file_path.contains("/core/")
-        || file_path.contains("/types.rs")
-        || file_path.contains("/error.rs")
-        || file_path.contains("/lib.rs")
-        || file_path.contains("/main.rs")
+    let segs = segments(file_path);
+    segs.contains(&"core")
+        || segs
+            .last()
+            .is_some_and(|last| matches!(*last, "types.rs" | "error.rs" | "lib.rs" | "main.rs"))
 }
 
-/// Check if a file path represents behavioral logic
+/// Whether the path looks like behavioural logic worth scenario coverage.
 pub fn is_behavioral_module(file_path: &str) -> bool {
-    file_path.contains("/apply/")
-        || file_path.contains("/strategy/")
-        || file_path.contains("/fast_export/")
+    segments(file_path)
+        .iter()
+        .any(|s| matches!(*s, "apply" | "strategy" | "fast_export"))
 }
 
 #[cfg(test)]
@@ -44,31 +67,91 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_module_name_valid() {
+    fn extracts_module_names_from_repository_relative_paths() {
+        // This is the shape a hook runner actually passes; see issue #7.
+        assert_eq!(
+            extract_module_name("src/calculator.rs"),
+            Some("calculator".to_string())
+        );
+        assert_eq!(
+            extract_module_name("src/analysis/config.rs"),
+            Some("analysis::config".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_module_names_from_nested_crate_paths() {
         assert_eq!(
             extract_module_name("any-crate/src/core/mover.rs"),
             Some("core::mover".to_string())
         );
         assert_eq!(
-            extract_module_name("project/src/apply/strategy.rs"),
-            Some("apply::strategy".to_string())
-        );
-        assert_eq!(
             extract_module_name("crates/git-mvh/src/types.rs"),
             Some("types".to_string())
         );
+        assert_eq!(
+            extract_module_name("./src/analysis/config.rs"),
+            Some("analysis::config".to_string())
+        );
     }
 
     #[test]
-    fn test_extract_module_name_invalid() {
+    fn a_module_whose_name_starts_with_mod_is_not_mangled() {
+        // The previous implementation did `.replace("::mod", "")`, turning
+        // `utilities::module_utils` into `utilitiesule_utils` — a filter that
+        // matches no test.
+        assert_eq!(
+            extract_module_name("src/utilities/module_utils.rs"),
+            Some("utilities::module_utils".to_string())
+        );
+        assert_eq!(
+            extract_module_name("src/models.rs"),
+            Some("models".to_string())
+        );
+    }
+
+    #[test]
+    fn maps_mod_rs_to_its_directory() {
+        assert_eq!(
+            extract_module_name("src/analysis/mod.rs"),
+            Some("analysis".to_string())
+        );
+        assert_eq!(
+            extract_module_name("src/a/b/mod.rs"),
+            Some("a::b".to_string())
+        );
+    }
+
+    #[test]
+    fn a_directory_named_src_deeper_in_the_tree_wins() {
+        assert_eq!(
+            extract_module_name("src/vendor/thing/src/inner.rs"),
+            Some("inner".to_string())
+        );
+    }
+
+    #[test]
+    fn crate_roots_and_non_rust_paths_have_no_module() {
+        assert_eq!(extract_module_name("src/main.rs"), None);
+        assert_eq!(extract_module_name("src/lib.rs"), None);
         assert_eq!(extract_module_name("any-crate/src/main.rs"), None);
-        assert_eq!(extract_module_name("project/src/lib.rs"), None);
         assert_eq!(extract_module_name("other/file.rs"), None);
         assert_eq!(extract_module_name("no-src-dir/file.rs"), None);
+        assert_eq!(extract_module_name("src/notes.md"), None);
+        assert_eq!(extract_module_name("src/mod.rs"), None);
     }
 
     #[test]
-    fn test_is_core_module() {
+    fn a_nested_main_rs_is_a_module_not_a_crate_root() {
+        assert_eq!(
+            extract_module_name("src/bin/main.rs"),
+            Some("bin::main".to_string())
+        );
+    }
+
+    #[test]
+    fn identifies_core_modules() {
+        assert!(is_core_module("src/core/mover.rs"));
         assert!(is_core_module("any-path/src/core/mover.rs"));
         assert!(is_core_module("project/src/types.rs"));
         assert!(is_core_module("crate/src/error.rs"));
@@ -77,8 +160,15 @@ mod tests {
     }
 
     #[test]
-    fn test_is_behavioral_module() {
-        assert!(is_behavioral_module("any-crate/src/apply/strategy.rs"));
+    fn core_module_matching_is_segment_aware() {
+        // `corestore` is not `core`, and `my_types.rs` is not `types.rs`.
+        assert!(!is_core_module("src/corestore/thing.rs"));
+        assert!(!is_core_module("src/my_types.rs"));
+    }
+
+    #[test]
+    fn identifies_behavioural_modules() {
+        assert!(is_behavioral_module("src/apply/strategy.rs"));
         assert!(is_behavioral_module("project/src/strategy/adaptive.rs"));
         assert!(is_behavioral_module("crate/src/fast_export/parser.rs"));
         assert!(!is_behavioral_module("project/src/core/mover.rs"));

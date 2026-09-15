@@ -1,9 +1,9 @@
-/// Git-MVH Pre-commit Hooks Library
-/// Modular architecture following Single Responsibility Principle
+//! smart-hooks — intelligent test selection for Rust projects.
+//!
+//! Modular architecture following the Single Responsibility Principle.
 pub mod analysis;
 pub mod dependency;
 pub mod execution;
-//pub mod hotreload; // Temporarily disabled due to missing dependencies (blake3, notify, tracing)
 pub mod project;
 pub mod utilities;
 

@@ -1,82 +1,25 @@
+# Hooks published by this repository.
+#
+# One hook, because the binary implements one thing. The previous manifest
+# advertised nine; four named subcommands that did not exist, one named a binary
+# that was never built, and one passed a literal `selective` that was silently
+# read as a filename. See docs/adr/0002-narrow-scope-to-rust-test-impact-selection.md
+# and issue #6.
+#
+# Run it under prek (recommended) or pre-commit:
+#
+#   repos:
+#     - repo: https://github.com/CaptainEmpower/smart-hooks
+#       rev: v0.3.0
+#       hooks:
+#         - id: smart-test-selector
+
 - id: smart-test-selector
   name: Smart Test Selector
-  description: Intelligently selects and runs only the tests affected by your changes using dependency analysis
-  entry: smart-hooks test selective
-  language: rust
-  types: [file]
-  require_serial: false
-  minimum_pre_commit_version: 3.2.0
-
-- id: smart-integration-tests
-  name: Smart Integration Test Runner
-  description: Runs integration tests only when necessary based on change impact analysis
-  entry: smart-hooks test integration
-  language: rust
-  types: [file]
-  require_serial: true
-  minimum_pre_commit_version: 3.2.0
-
-- id: conditional-compilation-check
-  name: Conditional Compilation Checker
-  description: Detects and validates conditional compilation patterns that might cause build issues
-  entry: smart-hooks check conditional-compilation
+  description: Runs the Rust tests affected by the staged files, selected from their module paths
+  entry: smart-hooks test
   language: rust
   types: [rust]
-  require_serial: false
+  pass_filenames: true
+  require_serial: true
   minimum_pre_commit_version: 3.2.0
-
-- id: multi-language-analyzer
-  name: Multi-Language Project Analyzer
-  description: Analyzes multi-language projects and provides intelligent test recommendations
-  entry: multi-lang-analyzer tests
-  language: rust
-  types: [file]
-  require_serial: false
-  minimum_pre_commit_version: 3.2.0
-
-- id: bdd-feature-selector
-  name: BDD Feature Selector
-  description: Intelligently selects relevant BDD/Cucumber features to run based on changed files
-  entry: claude-bdd-selector
-  language: rust
-  types: [file]
-  require_serial: false
-  minimum_pre_commit_version: 3.2.0
-  stages: [pre-commit, manual]
-
-- id: smart-hooks-lint
-  name: Smart Hooks Code Quality
-  description: Runs language-specific linting based on detected project languages
-  entry: smart-hooks lint
-  language: rust
-  types: [file]
-  require_serial: false
-  minimum_pre_commit_version: 3.2.0
-
-- id: smart-hooks-format
-  name: Smart Hooks Code Formatting
-  description: Formats code using appropriate tools based on detected project languages
-  entry: smart-hooks format
-  language: rust
-  types: [file]
-  require_serial: false
-  minimum_pre_commit_version: 3.2.0
-
-- id: dependency-impact-analysis
-  name: Dependency Impact Analysis
-  description: Analyzes the impact of changes across project dependencies and suggests affected areas
-  entry: smart-hooks analyze dependencies
-  language: rust
-  types: [file]
-  require_serial: false
-  minimum_pre_commit_version: 3.2.0
-
-- id: smart-hooks-summary
-  name: Smart Hooks Summary Report
-  description: Provides a comprehensive analysis summary of the project and suggested actions
-  entry: smart-hooks summary
-  language: rust
-  types: [file]
-  require_serial: false
-  minimum_pre_commit_version: 3.2.0
-  stages: [pre-push, manual]

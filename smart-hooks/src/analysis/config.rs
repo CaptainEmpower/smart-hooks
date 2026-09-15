@@ -61,10 +61,12 @@ impl Default for BddStructuralPatterns {
                 "/workflow/".to_string(),
                 "/pipeline/".to_string(),
             ],
+            // `/types` is deliberately absent: a type-definition change is
+            // covered by `integration_test_patterns`, and as a bare substring it
+            // also swallowed `/typescript/`.
             error_handling: vec![
                 "/error".to_string(),
                 "/validate".to_string(),
-                "/types".to_string(),
                 "/validation/".to_string(),
                 "/exception/".to_string(),
             ],
@@ -228,11 +230,17 @@ impl TestSelectorConfig {
             .any(|pattern| file_path.contains(pattern))
     }
 
-    /// Check if a file path should trigger BDD tests
+    /// Check if a file path should trigger BDD tests.
+    ///
+    /// Consults the explicit `bdd_test_patterns` first, then the domain-agnostic
+    /// structural patterns. Before this, `bdd_structural_patterns` was computed
+    /// and never read by the planner, so the "configurable, domain-agnostic"
+    /// path had no effect on test selection.
     pub fn should_run_bdd_tests(&self, file_path: &str) -> bool {
         self.bdd_test_patterns
             .iter()
             .any(|pattern| file_path.contains(pattern))
+            || self.matches_structural_pattern(file_path)
     }
 
     /// Check if a file path matches any structural pattern for BDD testing

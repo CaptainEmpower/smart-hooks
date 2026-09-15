@@ -111,7 +111,7 @@ mod tests {
 
         // This should fail because the test doesn't exist
         let result = execute_test_plan(&plan);
-        
+
         // The result might be Ok if cargo test succeeds with no matching tests
         // or Err if it fails. Let's handle both cases gracefully.
         if result.is_err() {
@@ -167,7 +167,7 @@ mod tests {
 
         // Execute a plan with all test types
         let result = execute_test_plan(&plan);
-        
+
         // Since tests likely don't exist, we expect it to fail
         // but verify it returns a meaningful error
         if result.is_err() {
@@ -190,7 +190,7 @@ mod tests {
         };
 
         let result = execute_test_plan(&plan);
-        
+
         // Verify that all test names are mentioned in case of failure
         if result.is_err() {
             let error_msg = result.err().unwrap().to_string();
@@ -226,14 +226,14 @@ mod tests {
     #[test]
     fn test_error_message_formatting() {
         // Test that we can simulate the error formatting logic
-        let failed_tests = vec![
+        let failed_tests = [
             "Unit test: test1".to_string(),
             "Integration tests (timeout)".to_string(),
             "BDD tests".to_string(),
         ];
-        
+
         let error_msg = format!("Failed tests: {}", failed_tests.join(", "));
-        
+
         assert!(error_msg.contains("Failed tests:"));
         assert!(error_msg.contains("Unit test: test1"));
         assert!(error_msg.contains("Integration tests (timeout)"));
@@ -246,7 +246,7 @@ mod tests {
     fn test_plan_execution_logic() {
         // This tests the core logic without actually running tests
         let plan = TestPlan::default();
-        
+
         // Empty plan should succeed without running anything
         let result = execute_test_plan(&plan);
         assert!(result.is_ok());
@@ -265,7 +265,7 @@ mod tests {
 
         // Should attempt to run the single test
         let result = execute_test_plan(&plan);
-        
+
         // Test doesn't exist, so should fail gracefully
         if result.is_err() {
             let error_msg = result.err().unwrap().to_string();

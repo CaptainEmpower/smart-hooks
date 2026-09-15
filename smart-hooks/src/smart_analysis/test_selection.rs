@@ -1,187 +1,144 @@
-//! Test selection and BDD functionality
-//! 
-//! This module handles intelligent test selection and BDD feature analysis,
-//! providing core smart analysis functionality for test discovery.
-//! Follows SRP by handling only test selection concerns.
+//! Turn a list of changed files into a test plan, then run it.
 
 use anyhow::Result;
 use serde_json::json;
 
 use smart_hooks::TestPlan;
 
-/// Run smart test selector on provided files
-pub fn run_smart_test_selector(files: Vec<String>, json_output: bool) -> Result<()> {
+/// Analyse `files`, build a test plan and execute it.
+///
+/// With `dry_run`, the plan is reported and nothing is executed — useful for
+/// seeing what a hook *would* run before trusting it with a commit.
+pub fn run_smart_test_selector(files: Vec<String>, json_output: bool, dry_run: bool) -> Result<()> {
     if files.is_empty() {
-        let empty_result = json!({
-            "status": "skipped",
-            "message": "No files to analyze",
-            "files_count": 0,
-            "test_plan": null
-        });
-
-        if json_output {
-            println!("{}", serde_json::to_string_pretty(&empty_result)?);
-        } else {
-            println!("No files to analyze, skipping smart test selection");
-        }
+        report_empty(json_output)?;
         return Ok(());
     }
 
-    let analyzing_status = json!({
-        "status": "analyzing",
-        "files_count": files.len(),
-        "files": files
-    });
-
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&analyzing_status)?);
-    } else {
+    if !json_output {
         println!(
-            "🔍 Analyzing {} staged file(s) for functionality changes...",
+            "🔍 Analysing {} changed file(s) for affected tests...",
             files.len()
         );
     }
 
-    // Create test plan using modular analysis
-    let test_plan = create_test_plan(&files)?;
+    let test_plan = smart_hooks::create_test_plan(&files)?;
 
     if json_output {
-        let completion_result = json!({
-            "status": "completed",
-            "test_plan": {
-                "unit_tests": test_plan.unit_tests,
-                "integration_tests": test_plan.integration_tests,
-                "bdd_tests": test_plan.bdd_tests
-            },
-            "files_analyzed": files.len()
-        });
-        println!("{}", serde_json::to_string_pretty(&completion_result)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&plan_json(&test_plan, &files, dry_run))?
+        );
+    } else if dry_run {
+        print_plan(&test_plan);
     }
 
-    // Execute the plan using modular execution
-    execute_test_plan(&test_plan, json_output)?;
+    if dry_run {
+        return Ok(());
+    }
 
+    smart_hooks::execute_test_plan(&test_plan)
+}
+
+fn report_empty(json_output: bool) -> Result<()> {
+    if json_output {
+        let empty = json!({
+            "status": "skipped",
+            "message": "No files to analyse",
+            "files_count": 0,
+            "test_plan": null,
+        });
+        println!("{}", serde_json::to_string_pretty(&empty)?);
+    } else {
+        println!("No files to analyse, skipping test selection");
+    }
     Ok(())
 }
 
-/// Run BDD selector for code changes (requires claude-ai feature)
-#[cfg(feature = "claude-ai")]
-pub fn run_bdd_selector(files: Vec<String>, json_output: bool) -> Result<()> {
-    let analyzing_status = json!({
-        "status": "analyzing",
-        "files_count": files.len(),
-        "files": files
-    });
+fn plan_json(plan: &TestPlan, files: &[String], dry_run: bool) -> serde_json::Value {
+    let mut unit_tests: Vec<&String> = plan.unit_tests.iter().collect();
+    unit_tests.sort();
 
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&analyzing_status)?);
-    } else {
-        println!("🎭 Analyzing BDD features for {} file(s)...", files.len());
-    }
-    
-    // Import BDD functionality when claude-ai feature is enabled
-    use smart_hooks::analysis::bdd_feature_selector;
-    
-    let features = bdd_feature_selector::discover_bdd_features(&std::path::Path::new("."))?;
-    
-    if json_output {
-        let completion_result = json!({
-            "status": "completed",
-            "bdd_features": {
-                "count": features.len(),
-                "features": features
-            },
-            "files_analyzed": files.len()
-        });
-        println!("{}", serde_json::to_string_pretty(&completion_result)?);
-    } else {
-        println!("Found {} BDD features", features.len());
-        for feature in features {
-            println!("  📝 {}", feature);
-        }
-    }
-    
-    Ok(())
+    json!({
+        "status": if dry_run { "planned" } else { "completed" },
+        "files_analysed": files.len(),
+        "test_plan": {
+            "unit_tests": unit_tests,
+            "integration_tests": plan.integration_tests,
+            "bdd_tests": plan.bdd_tests,
+        },
+    })
 }
 
-/// Run BDD selector fallback when claude-ai feature is not enabled
-#[cfg(not(feature = "claude-ai"))]
-pub fn run_bdd_selector(_files: Vec<String>, json_output: bool) -> Result<()> {
-    let error_result = json!({
-        "status": "error",
-        "error": "BDD selector requires the 'claude-ai' feature to be enabled",
-        "solution": "Install with: cargo install smart-hooks --features claude-ai"
-    });
-
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&error_result)?);
-    } else {
-        eprintln!("❌ BDD selector requires the 'claude-ai' feature to be enabled");
-        eprintln!("Install with: cargo install smart-hooks --features claude-ai");
+fn print_plan(plan: &TestPlan) {
+    if plan.unit_tests.is_empty() && !plan.integration_tests && !plan.bdd_tests {
+        println!("  (no tests selected)");
+        return;
     }
-    std::process::exit(1);
-}
 
-/// Create a test plan based on file analysis
-pub fn create_test_plan(files: &[String]) -> Result<TestPlan> {
-    // Use the existing smart_hooks analysis functionality
-    smart_hooks::create_test_plan(files)
-}
-
-/// Execute a test plan
-pub fn execute_test_plan(test_plan: &TestPlan, _json_output: bool) -> Result<()> {
-    // Use the existing smart_hooks execution functionality
-    smart_hooks::execute_test_plan(test_plan)
+    let mut unit_tests: Vec<&String> = plan.unit_tests.iter().collect();
+    unit_tests.sort();
+    for test in unit_tests {
+        println!("  unit: {test}");
+    }
+    if plan.integration_tests {
+        println!("  integration: all");
+    }
+    if plan.bdd_tests {
+        println!("  bdd: all");
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
-    #[test]
-    fn test_create_test_plan() {
-        // Test that we can use the existing TestPlan
-        let files = vec!["src/main.rs".to_string()];
-        let result = create_test_plan(&files);
-        assert!(result.is_ok());
+    fn plan(unit: &[&str], integration: bool, bdd: bool) -> TestPlan {
+        TestPlan {
+            unit_tests: unit.iter().map(|s| s.to_string()).collect::<HashSet<_>>(),
+            integration_tests: integration,
+            bdd_tests: bdd,
+        }
     }
 
     #[test]
-    fn test_run_smart_test_selector_empty_files() {
-        let result = run_smart_test_selector(vec![], true);
-        assert!(result.is_ok());
+    fn empty_file_list_runs_nothing_and_succeeds() {
+        run_smart_test_selector(vec![], true, false).expect("an empty file list is not an error");
     }
 
     #[test]
-    fn test_run_smart_test_selector_with_files() {
-        let files = vec!["src/main.rs".to_string()];
-        let result = run_smart_test_selector(files, true);
-        assert!(result.is_ok());
+    fn dry_run_reports_the_plan_without_executing_it() {
+        // `src/does_not_exist.rs` selects nothing, so a non-dry run would also
+        // be a no-op; the assertion that matters is that dry_run returns Ok
+        // without invoking cargo.
+        run_smart_test_selector(vec!["src/does_not_exist.rs".to_string()], true, true)
+            .expect("dry run must not fail");
     }
 
     #[test]
-    fn test_execute_test_plan() {
-        let files = vec!["src/main.rs".to_string()];
-        let test_plan = create_test_plan(&files).unwrap();
-        let result = execute_test_plan(&test_plan, false);
-        assert!(result.is_ok());
+    fn plan_json_sorts_unit_tests_and_marks_a_dry_run_as_planned() {
+        let value = plan_json(
+            &plan(&["b::two", "a::one"], true, false),
+            &["x.rs".into()],
+            true,
+        );
+
+        assert_eq!(value["status"], "planned");
+        assert_eq!(value["files_analysed"], 1);
+        assert_eq!(
+            value["test_plan"]["unit_tests"],
+            json!(["a::one", "b::two"])
+        );
+        assert_eq!(value["test_plan"]["integration_tests"], json!(true));
+        assert_eq!(value["test_plan"]["bdd_tests"], json!(false));
     }
 
-    #[cfg(feature = "claude-ai")]
     #[test]
-    fn test_run_bdd_selector_with_claude_ai() {
-        let files = vec!["src/main.rs".to_string()];
-        let result = run_bdd_selector(files, true);
-        // Should not panic, may succeed or fail based on environment
-        assert!(result.is_ok() || result.is_err());
-    }
+    fn plan_json_marks_an_executed_run_as_completed() {
+        let value = plan_json(&plan(&[], false, false), &[], false);
 
-    #[cfg(not(feature = "claude-ai"))]
-    #[test]
-    fn test_run_bdd_selector_without_claude_ai() {
-        let files = vec!["src/main.rs".to_string()];
-        // This should exit the process, but we can't easily test process exit
-        // Just verify the function exists and can be called
-        assert!(true);
+        assert_eq!(value["status"], "completed");
+        assert_eq!(value["test_plan"]["unit_tests"], json!([]));
     }
 }

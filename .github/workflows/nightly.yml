@@ -109,7 +109,6 @@ jobs:
         features: 
           - ""
           - "claude-ai"
-          - "hotreload"
 
     steps:
     - name: Checkout code
