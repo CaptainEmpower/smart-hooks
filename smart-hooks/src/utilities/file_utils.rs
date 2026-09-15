@@ -1,5 +1,6 @@
 //! Safe file reading and path classification.
 
+use crate::utilities::path_segments::path_segments;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -29,10 +30,7 @@ pub fn is_core_functionality_file(path: &Path) -> bool {
         return false;
     }
 
-    let segments: Vec<&str> = path_str
-        .split('/')
-        .filter(|s| !s.is_empty() && *s != ".")
-        .collect();
+    let segments = path_segments(&path_str);
 
     // Any `tests` segment disqualifies the path, wherever it sits: `src/tests/`
     // is test code inside a crate, and `tests/src/` is a fixture crate under an
@@ -76,6 +74,26 @@ mod tests {
         assert!(is_core_functionality_file(Path::new(
             "crates/git-mvh/src/core/mover.rs"
         )));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_windows_paths_are_classified_like_git_paths() {
+        // Regression for the review on #10 — see module_utils for the cause.
+        assert!(is_core_functionality_file(Path::new(
+            r"C:\Users\runner\Temp\.tmpAbC\src\calculator.rs"
+        )));
+        assert!(!is_core_functionality_file(Path::new(
+            r"C:\Users\runner\Temp\.tmpAbC\tests\src\fixture.rs"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_is_part_of_a_unix_filename_not_a_separator() {
+        // Regression for the review on #11: one file at the repository root,
+        // not a file under `src/`, so it is not crate functionality.
+        assert!(!is_core_functionality_file(Path::new(r"src\core\mover.rs")));
     }
 
     #[test]
