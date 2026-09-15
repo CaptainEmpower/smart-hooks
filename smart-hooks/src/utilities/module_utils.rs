@@ -1,16 +1,6 @@
 //! Convert file paths to Rust module names.
 
-/// Split a path into `/`-separated segments, ignoring `./` and empty segments.
-///
-/// Paths reach us from a hook runner as repository-relative strings
-/// (`src/calculator.rs`), so segment matching has to work with or without a
-/// leading component.
-fn segments(file_path: &str) -> Vec<&str> {
-    file_path
-        .split('/')
-        .filter(|s| !s.is_empty() && *s != ".")
-        .collect()
-}
+use crate::utilities::path_segments::path_segments as segments;
 
 /// Index just past the last `src` segment, if the path has one.
 fn after_src(segs: &[&str]) -> Option<usize> {
@@ -116,6 +106,26 @@ mod tests {
         assert_eq!(
             extract_module_name("src/models.rs"),
             Some("models".to_string())
+        );
+    }
+
+    #[test]
+    fn windows_paths_resolve_the_same_as_posix_ones() {
+        // Regression for the review on #10: the splitter took `/` only, so a
+        // native Windows path was one segment, `src` was never found, and every
+        // module lookup returned None on that platform.
+        assert_eq!(
+            extract_module_name(r"C:\Users\runner\Temp\.tmpAbC\src\calculator.rs"),
+            Some("calculator".to_string())
+        );
+        assert_eq!(
+            extract_module_name(r"D:\work\crate\src\analysis\config.rs"),
+            Some("analysis::config".to_string())
+        );
+        assert_eq!(extract_module_name(r"C:\tmp\crate\src\lib.rs"), None);
+        assert_eq!(
+            extract_module_name(r"C:\tmp\crate\tests\src\fixture.rs"),
+            None
         );
     }
 
