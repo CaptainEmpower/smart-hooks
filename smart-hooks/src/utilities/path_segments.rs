@@ -1,30 +1,40 @@
 //! One place that decides what a path's segments are.
 //!
-//! Paths reach this crate from two sources that disagree about separators:
+//! Paths reach this crate from two sources:
 //!
-//! - a hook runner (prek, pre-commit) passes repository-relative POSIX paths,
-//!   `src/parser.rs`, because that is what git reports;
-//! - callers and tests using [`std::path`] produce native separators, so on
-//!   Windows the same file arrives as `…\src\parser.rs`.
+//! - a hook runner (prek, pre-commit) passes what git reports, which is
+//!   repository-relative and `/`-separated on every platform, Windows
+//!   included;
+//! - tests and callers using [`std::path`] produce native separators, so the
+//!   same file can arrive as `…\src\parser.rs` on Windows.
 //!
-//! Splitting on `/` alone saw a Windows path as a single segment, so `src` was
-//! never found and every path-based decision silently came out negative there.
-//! Both separators are therefore accepted on every platform, so that a given
-//! path string classifies identically wherever the code runs.
+//! Splitting on `/` alone handled the first and not the second, so a native
+//! Windows path was one segment and `src` was never found there.
 //!
-//! The cost is that a Unix file whose *name* contains a literal backslash is
-//! split at it. That is legal on Unix and pathological in a source tree; making
-//! the behaviour platform-dependent instead would mean the same input
-//! classified differently on different machines, which is worse for a tool that
-//! decides which tests to skip.
+//! Splitting on both characters unconditionally would fix that and break
+//! something else: `\` is a legal filename character on Unix, so a file
+//! genuinely named `src\core\mover.rs` would be reinterpreted as
+//! `src/core/mover.rs` and select a unit-test filter for a module that does
+//! not exist.
+//!
+//! [`std::path::Component`] already draws this line correctly, per platform:
+//! on Windows both `\` and `/` separate, on Unix only `/` does. Deferring to
+//! it means each platform reads a path the way that platform means it, with no
+//! separator guessing here.
 
-/// Split a path into its meaningful segments, accepting either separator.
+use std::path::{Component, Path};
+
+/// Split a path into its meaningful segments, using the platform's own rules.
 ///
-/// Empty segments and `.` are dropped, so `./src//x.rs` and `src/x.rs` agree.
+/// Prefixes (`C:`), root markers and `.` are dropped, so `./src/x.rs` and
+/// `src/x.rs` agree, and an absolute path contributes only its named parts.
 pub fn path_segments(file_path: &str) -> Vec<&str> {
-    file_path
-        .split(['/', '\\'])
-        .filter(|s| !s.is_empty() && *s != ".")
+    Path::new(file_path)
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(segment) => segment.to_str(),
+            _ => None,
+        })
         .collect()
 }
 
@@ -33,41 +43,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn posix_paths_split_on_slash() {
+    fn git_style_paths_split_on_every_platform() {
+        // What a hook runner actually passes, Windows included.
         assert_eq!(
             path_segments("src/analysis/config.rs"),
             ["src", "analysis", "config.rs"]
         );
-    }
-
-    #[test]
-    fn windows_paths_split_on_backslash() {
         assert_eq!(
-            path_segments(r"C:\Users\runner\Temp\.tmpAbC\src\calculator.rs"),
-            [
-                "C:",
-                "Users",
-                "runner",
-                "Temp",
-                ".tmpAbC",
-                "src",
-                "calculator.rs"
-            ]
-        );
-    }
-
-    #[test]
-    fn mixed_separators_are_accepted() {
-        assert_eq!(
-            path_segments(r"crates\foo/src\lib.rs"),
+            path_segments("crates/foo/src/lib.rs"),
             ["crates", "foo", "src", "lib.rs"]
         );
     }
 
     #[test]
-    fn empty_and_dot_segments_are_dropped() {
+    fn leading_dot_and_empty_segments_are_dropped() {
         assert_eq!(path_segments("./src//x.rs"), ["src", "x.rs"]);
-        assert_eq!(path_segments(r".\src\x.rs"), ["src", "x.rs"]);
         assert_eq!(path_segments(""), Vec::<&str>::new());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_in_a_unix_filename_is_part_of_the_name() {
+        // Regression for the review on #11: treating `\` as a separator here
+        // would turn one oddly-named file into a three-level module path and
+        // select a filter for a module that does not exist.
+        assert_eq!(path_segments(r"src\core\mover.rs"), [r"src\core\mover.rs"]);
+        assert_eq!(path_segments(r"src/odd\name.rs"), ["src", r"odd\name.rs"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_windows_paths_split_on_backslash() {
+        // Regression for the review on #10: these arrive from
+        // `TempDir::path().join(..)` and used to collapse to a single segment.
+        assert_eq!(
+            path_segments(r"C:\Users\runner\Temp\.tmpAbC\src\calculator.rs"),
+            ["Users", "runner", "Temp", ".tmpAbC", "src", "calculator.rs"]
+        );
+        // Windows accepts both separators, so a git-style path still works.
+        assert_eq!(
+            path_segments(r"crates\foo/src\lib.rs"),
+            ["crates", "foo", "src", "lib.rs"]
+        );
     }
 }

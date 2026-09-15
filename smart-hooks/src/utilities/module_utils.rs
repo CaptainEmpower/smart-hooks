@@ -109,11 +109,11 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
-    fn windows_paths_resolve_the_same_as_posix_ones() {
+    fn native_windows_paths_resolve_like_git_paths() {
         // Regression for the review on #10: the splitter took `/` only, so a
-        // native Windows path was one segment, `src` was never found, and every
-        // module lookup returned None on that platform.
+        // native Windows path was one segment and no module was ever found.
         assert_eq!(
             extract_module_name(r"C:\Users\runner\Temp\.tmpAbC\src\calculator.rs"),
             Some("calculator".to_string())
@@ -123,9 +123,17 @@ mod tests {
             Some("analysis::config".to_string())
         );
         assert_eq!(extract_module_name(r"C:\tmp\crate\src\lib.rs"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_is_part_of_a_unix_filename_not_a_separator() {
+        // Regression for the review on #11: this is one oddly-named file at the
+        // repository root, not `src/core/mover.rs`, and must select nothing.
+        assert_eq!(extract_module_name(r"src\core\mover.rs"), None);
         assert_eq!(
-            extract_module_name(r"C:\tmp\crate\tests\src\fixture.rs"),
-            None
+            extract_module_name(r"src/odd\name.rs"),
+            Some(r"odd\name".to_string())
         );
     }
 

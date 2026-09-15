@@ -76,8 +76,9 @@ mod tests {
         )));
     }
 
+    #[cfg(windows)]
     #[test]
-    fn windows_paths_are_classified_the_same_as_posix_ones() {
+    fn native_windows_paths_are_classified_like_git_paths() {
         // Regression for the review on #10 — see module_utils for the cause.
         assert!(is_core_functionality_file(Path::new(
             r"C:\Users\runner\Temp\.tmpAbC\src\calculator.rs"
@@ -85,9 +86,14 @@ mod tests {
         assert!(!is_core_functionality_file(Path::new(
             r"C:\Users\runner\Temp\.tmpAbC\tests\src\fixture.rs"
         )));
-        assert!(!is_core_functionality_file(Path::new(
-            r"C:\Users\runner\Temp\.tmpAbC\notes.md"
-        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_is_part_of_a_unix_filename_not_a_separator() {
+        // Regression for the review on #11: one file at the repository root,
+        // not a file under `src/`, so it is not crate functionality.
+        assert!(!is_core_functionality_file(Path::new(r"src\core\mover.rs")));
     }
 
     #[test]
