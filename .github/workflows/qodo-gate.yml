@@ -44,3 +44,36 @@ jobs:
           # and cleared. Zero findings and zero evidence of a review are the
           # same output and opposite facts.
           require-evidence-of-review: true
+
+  # Re-runs this PR's own gate run when Qodo posts or updates its verdict.
+  #
+  # Without it the gate's answer goes stale in the direction that hurts: Qodo
+  # reviews once, minutes after the PR opens, and the review-thread events
+  # above only fire when a human resolves a thread. The run that decided
+  # "reviewed: false" never re-evaluates on its own, so the check stays red
+  # after Qodo has actually reviewed and found nothing.
+  #
+  # Launchpad publishes this as a reusable workflow, so it is called rather
+  # than copied — the ~195-line snippet it replaced had no propagation path,
+  # and fixes upstream reached zero consumers (launchpad#88, #97).
+  rerun-after-qodo-comment:
+    uses: CaptainEmpower/launchpad/.github/workflows/qodo-gate-rerun.yml@f18b4dce23068ae893861441f7c7cf13cfe36709 # CaptainEmpower/launchpad main
+    # Required here, not only in the called workflow: a called workflow's token
+    # can be equal to or more restrictive than the caller's, never broader.
+    # Omit this and `gh run rerun` reaches for `actions: write` it was never
+    # granted, and the one job that corrects a stale verdict fails on auth.
+    permissions:
+      actions: write        # re-run the gate's own run
+      contents: read
+      pull-requests: read
+    with:
+      # This repository is on GitHub-hosted runners — every other workflow
+      # here uses ubuntu-latest. The input has no default upstream, so it is
+      # stated rather than inherited.
+      runner: ubuntu-latest
+      # Must match the gate's `bot-logins` above. If the two disagree the gate
+      # keeps gating while the re-run stops firing, which latches the check red
+      # on exactly the pull requests Qodo has just cleared.
+      bot-logins: qodo-code-review[bot]
+      # This file's own name, so the workflow can find the runs to re-run.
+      workflow-file: qodo-gate.yml
