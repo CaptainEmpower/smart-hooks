@@ -1,0 +1,46 @@
+name: Qodo gate
+
+# A dedicated, lightweight gate, separate from the compile/test workflows so it
+# re-evaluates when *review* state changes rather than only on code pushes.
+# `pull_request` covers opened/synchronize; the review and review-thread events
+# let a resolved Qodo thread flip this check green without a new commit or a
+# full CI re-run.
+#
+# Why this repo needs it: Qodo reviews a PR once, shortly after it opens, and
+# does not re-review later pushes. Before this gate there was no mechanical
+# signal for "the review is addressed" — merges relied on a human reading the
+# threads, and a PR merged in the window before Qodo had reviewed at all looked
+# exactly like a PR it had reviewed and cleared.
+on:
+  pull_request:
+  pull_request_review:
+  pull_request_review_thread:
+    types: [resolved, unresolved]
+
+concurrency:
+  group: qodo-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Blocking gate: this PR cannot merge while any Qodo review finding is still
+  # open. A finding is "closed" once its review thread is resolved.
+  qodo-gate:
+    name: Qodo findings closed
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Gate on unresolved Qodo findings
+        uses: CaptainEmpower/launchpad/.github/actions/qodo-findings-gate@9d651239aa3b2fc2b62c9d2782f90e852b4d0c27 # CaptainEmpower/launchpad main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # The org's Qodo app posts review threads as qodo-code-review[bot] —
+          # confirmed against the reviews on #8, #10 and #11 in this repo.
+          bot-logins: qodo-code-review[bot]
+          # Stated rather than left to the default, because it is the reason
+          # this pin is newer than sembase's: without it, a PR that Qodo has
+          # not reviewed yet reports the same green check as one it reviewed
+          # and cleared. Zero findings and zero evidence of a review are the
+          # same output and opposite facts.
+          require-evidence-of-review: true

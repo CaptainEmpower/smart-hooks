@@ -27,6 +27,13 @@ Kani proofs, and git-mvh still runs all three against its own code.
 |----------|---------|---------|------------|
 | `pr-checks.yml` | Core validation | Every PR | Tests, linting, compilation |
 | `security.yml` | Secret detection | Every push/PR | Pre-commit secret scanning |
+| `qodo-gate.yml` | Review findings closed | PR + review events | Blocks merge while a Qodo thread is unresolved |
+
+`qodo-gate.yml` is deliberately separate from `pr-checks.yml`: it listens to
+review and review-thread events as well as pushes, so resolving a Qodo thread
+flips it green without a new commit or a full CI re-run. It also refuses to
+report an all-clear on a PR no Qodo identity has reviewed — zero findings and
+zero evidence of a review render as the same green check otherwise.
 
 ## Security Analysis Coverage
 
